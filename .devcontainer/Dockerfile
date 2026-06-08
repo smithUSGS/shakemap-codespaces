@@ -18,8 +18,8 @@ RUN curl -fsSL "https://code.usgs.gov/ghsc/esi/shakemap/-/raw/${SHAKEMAP_VERSION
 
 RUN conda init bash && bash /home/vscode/install_shakemap.sh -v ${SHAKEMAP_VERSION} -k /home/vscode/shakemap-src && conda clean -afy
 
-RUN bash -lc "conda activate shakemap && sm_profile -c default -a"
+RUN conda run -n shakemap sm_profile -c default -a
 
 RUN echo "conda activate shakemap" >> /home/vscode/.bashrc
 
-RUN bash -lc "conda activate shakemap && shake -v 2>&1 | grep -q '4.4.9' && test -f /home/vscode/shakemap_data/vs30/global_vs30.grd && echo 'TEST PASSED: shakemap 4.4.9 + grids present'"
+RUN conda run -n shakemap bash -c "shake -v 2>&1 | grep -q '4.4.9' && test -f /home/vscode/shakemap_data/vs30/global_vs30.grd && echo 'TEST PASSED'"
