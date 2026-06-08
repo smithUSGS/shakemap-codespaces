@@ -27,4 +27,3 @@ RUN echo "conda activate shakemap" >> /home/vscode/.bashrc
 RUN bash -lc "conda activate shakemap \
     && shake -v 2>&1 | grep -q '4.4.9' \
     && test -f /home/vscode/shakemap_data/vs30/global_vs30.grd \
-    && echo 'SMOKE TEST PASSED: shakemap 4.4.9 + grids present'"
