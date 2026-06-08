@@ -1,8 +1,12 @@
 {
-  "name": "ShakeMap Workshop",
+  "name": "ShakeMap Workshop (v4.4.9)",
  
-  "build": { "dockerfile": "Dockerfile" },
+  "build": {
+    "dockerfile": "Dockerfile.workshop",
+    "args": { "SHAKEMAP_VERSION": "v4.4.9" }
+  },
  
+  // 2-core is plenty for ShakeMap; bump to 4 if you expect heavy simultaneous runs.
   "hostRequirements": { "cpus": 2 },
  
   "customizations": {
@@ -16,5 +20,5 @@
  
   "remoteUser": "vscode",
  
-  "postCreateCommand": "echo 'Codespace ready. Next: cd ~/shakemap-src && bash install.sh'"
+  "postCreateCommand": "bash -lc 'conda activate shakemap && shake -v && echo \"ShakeMap ready — try: sm_profile -l\"'"
 }
