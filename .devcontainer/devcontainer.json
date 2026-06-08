@@ -2,11 +2,10 @@
   "name": "ShakeMap Workshop (v4.4.9)",
  
   "build": {
-    "dockerfile": "Dockerfile.workshop",
+    "dockerfile": "Dockerfile",
     "args": { "SHAKEMAP_VERSION": "v4.4.9" }
   },
  
-  // 2-core is plenty for ShakeMap; bump to 4 if you expect heavy simultaneous runs.
   "hostRequirements": { "cpus": 2 },
  
   "customizations": {
