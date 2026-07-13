@@ -18,7 +18,7 @@ RUN curl -fsSL "https://code.usgs.gov/ghsc/esi/shakemap/-/raw/${SHAKEMAP_VERSION
 RUN bash /home/vscode/install_shakemap.sh -v ${SHAKEMAP_VERSION} -k /home/vscode/shakemap-src && conda clean -afy
 RUN conda run -n shakemap sm_profile -c default -a
 
-# --- pre-warm events to avoid run-time downloads---
+# --- run events to avoid run-time downloads---
 RUN conda run -n shakemap bash -c "sm_create ci3144585 && shake ci3144585 assemble -c 'prebuild' model contour mapping gridxml"
 RUN conda run -n shakemap bash -c "sm_create us6000jlqa && shake us6000jlqa assemble -c 'prebuild' model contour mapping gridxml"
 RUN test -d /home/vscode/.local/share/cartopy/shapefiles/natural_earth && echo "CARTOPY BASEMAPS BAKED IN"
@@ -35,7 +35,6 @@ RUN /opt/conda/envs/gf/bin/python --version | grep -q "3.10" && /opt/conda/envs/
 
 # --- bake in Turkey groundfailure input layers (clipped to lon 25-45, lat 35-42) ---
 COPY data/turkey_inputs /home/vscode/turkey_inputs
-RUN chown -R vscode:vscode /home/vscode/turkey_inputs && gzip -d /home/vscode/turkey_inputs/Jessee2018_X.tif.gz && gzip -d /home/vscode/turkey_inputs/jessee_standard_deviation.tif.gz
 
 # --- bake in the groundfailure plotting script ---
 COPY data/plot_gf.py /home/vscode/plot_gf.py
