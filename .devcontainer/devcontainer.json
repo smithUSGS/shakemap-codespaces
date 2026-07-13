@@ -3,6 +3,7 @@
  
   "build": {
     "dockerfile": "Dockerfile",
+    "context": "..",
     "args": { "SHAKEMAP_VERSION": "v4.4.9" }
   },
  
