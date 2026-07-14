@@ -11,7 +11,10 @@
  
   "customizations": {
     "vscode": {
-      "extensions": ["ms-python.python"],
+      "extensions": [
+        "ms-python.python",
+        "ms-vscode.live-server"
+      ],
       "settings": {
         "terminal.integrated.defaultProfile.linux": "bash"
       }
