@@ -1,27 +1,26 @@
-{
+ {
   "name": "ShakeMap Workshop (v4.4.9)",
- 
+
   "build": {
     "dockerfile": "Dockerfile",
     "context": "..",
     "args": { "SHAKEMAP_VERSION": "v4.4.9" }
   },
- 
+
   "hostRequirements": { "cpus": 2 },
- 
+
   "customizations": {
     "vscode": {
       "extensions": [
-        "ms-python.python",
-        "ms-vscode.live-server"
+        "ms-python.python"
       ],
       "settings": {
         "terminal.integrated.defaultProfile.linux": "bash"
       }
     }
   },
- 
+
   "remoteUser": "vscode",
- 
+
   "postCreateCommand": "bash -lc 'conda activate shakemap && shake -v && echo \"ShakeMap ready — try: sm_profile -l\"'"
 }
