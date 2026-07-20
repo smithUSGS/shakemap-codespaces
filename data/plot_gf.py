@@ -1,29 +1,26 @@
 #!/usr/bin/env python3
 """
-groundfailure_maps.py
-
-Standalone reproduction of USGS gfail's Godt (2008) landslide model,
-Nowicki and others (2014) landslide model, and Zhu and others (2017)
-liquefaction model (Model 2), rendered as a 3-panel static map with
-cartopy + a derived coastline.
-
-Dependencies:
-    numpy, scipy, rasterio, matplotlib, cartopy
+groundfailure_maps.py — static 3-panel ground failure map.
 
 Usage:
+    python groundfailure_maps.py \\
+        --shakefile northridge.xml \\
+        --datadir /path/to/model_inputs \\
+        --outfile northridge_groundfailure.png
 
-        python groundfailure_maps.py \\
-            --shakefile northridge.xml \\
-            --datadir /path/to/model_inputs \\
-            --outfile northridge_groundfailure.png
+Optional overlays (all paths to files from the ShakeMap products folder):
+    --rupture   rupture.json     finite fault trace (red line)
+    --contours  cont_mmi.json    MMI shaking contours (dashed black)
+    --hillshade hillshade.tif    hillshade raster drawn under model overlay
 
-Run with --help to see the full set of model-parameter overrides (thick,
-uwt, fsthresh, acthresh, dnthresh, slopemin, minpga, etc.) -- all default
-to the values in godt_2008.ini / nowicki_2014_global.ini.
+Model-parameter overrides (all have defaults from the .ini files):
+    --thick, --uwt, --codiv, --nodata-cohesion, --nodata-friction,
+    --fsthresh, --acthresh, --dnthresh, --slopemin, --minpga
 """
 
 import argparse
-import re
+import json
+import os
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -38,59 +35,36 @@ from scipy.ndimage import binary_fill_holes, binary_closing
 
 
 def parse_shakemap_grid(shakefile):
-    """Parse a ShakeMap grid.xml file into north-up 2D arrays.
-
-    Returns a dict with keys: pga, pgv, mmi (all %g/cm-s/intensity as
-    given in the file), lons, lats (1D coordinate arrays), and event
-    metadata (magnitude, lat, lon, description, timestamp, version).
-    """
     ns = {"sm": "http://earthquake.usgs.gov/eqcenter/shakemap"}
     tree = ET.parse(shakefile)
     root = tree.getroot()
-
     ev = root.find("sm:event", ns).attrib
     gs = root.find("sm:grid_specification", ns).attrib
     nlon, nlat = int(gs["nlon"]), int(gs["nlat"])
-
     fields = root.findall("sm:grid_field", ns)
     field_names = [f.attrib["name"] for f in fields]
     col_index = {name: i for i, name in enumerate(field_names)}
-
     gd_text = root.find("sm:grid_data", ns).text
     data = np.fromstring(gd_text, sep=" ", dtype=np.float64)
-    ncols = len(field_names)
-    data = data.reshape(nlon * nlat, ncols)
+    data = data.reshape(nlon * nlat, len(field_names))
 
     def get2d(name):
-        col = data[:, col_index[name]]
-        return col.reshape(nlat, nlon)
+        return data[:, col_index[name]].reshape(nlat, nlon)
 
-    lon2d = get2d("LON")
-    lat2d = get2d("LAT")
-    lons = lon2d[0, :]
-    lats = lat2d[:, 0]
-
-    out = {
-        "pga": get2d("PGA"),   # %g
-        "pgv": get2d("PGV"),   # cm/s
-        "mmi": get2d("MMI"),
-        "lons": lons,
-        "lats": lats,
+    lons = get2d("LON")[0, :]
+    lats = get2d("LAT")[:, 0]
+    return {
+        "pga": get2d("PGA"), "pgv": get2d("PGV"), "mmi": get2d("MMI"),
+        "lons": lons, "lats": lats,
         "magnitude": float(ev["magnitude"]),
-        "lat": float(ev["lat"]),
-        "lon": float(ev["lon"]),
+        "lat": float(ev["lat"]), "lon": float(ev["lon"]),
         "description": ev["event_description"],
         "event_timestamp": ev["event_timestamp"],
         "shakemap_version": root.attrib.get("shakemap_version", "1"),
     }
-    return out
 
 
 def resample_to_grid(path, lons, lats, resampling=Resampling.bilinear):
-    """Resample any GDAL-readable raster onto the given lon/lat grid.
-
-    lons, lats are 1D arrays (north-up: lats[0] = max latitude).
-    """
     nlat, nlon = len(lats), len(lons)
     dx = lons[1] - lons[0]
     dy = lats[0] - lats[1]
@@ -114,46 +88,30 @@ def compute_godt2008(lons, lats, pga_pctg, slope_dir, cohesion_file, friction_fi
                       thick=2.4, uwt=15.7, codiv=10.0,
                       nodata_cohesion=1.0, nodata_friction=26.0,
                       fsthresh=1.01, acthresh=0.05, dnthresh=5.0, slopemin=0.01):
-    """Reproduce gfail/godt.py exactly (J_PGA displacement model).
-
-    slope_dir must contain: slope_min.bil, slope10.bil, slope30.bil,
-    slope50.bil, slope70.bil, slope90.bil, slope_max.bil
-    """
-    import os
-
     quantiles = ["slope_min.bil", "slope10.bil", "slope30.bil", "slope50.bil",
                  "slope70.bil", "slope90.bil", "slope_max.bil"]
-    slopestack = []
-    for q in quantiles:
-        raw = resample_to_grid(os.path.join(slope_dir, q), lons, lats, Resampling.bilinear)
-        slopestack.append(raw / 100.0)  # files are degrees * 100
-    slopestack = np.dstack(slopestack)
+    slopestack = np.dstack([
+        resample_to_grid(os.path.join(slope_dir, q), lons, lats, Resampling.bilinear) / 100.0
+        for q in quantiles
+    ])
     slopestack[slopestack == 0] = 1e-8
 
-    cohesion_raw = resample_to_grid(cohesion_file, lons, lats, Resampling.nearest)
-    friction_raw = resample_to_grid(friction_file, lons, lats, Resampling.nearest)
-
-    cohesion = cohesion_raw[:, :, np.newaxis] / codiv
-    cohesion = np.repeat(cohesion, 7, axis=2)
-    cohesion = np.nan_to_num(cohesion)
+    cohesion = np.nan_to_num(resample_to_grid(cohesion_file, lons, lats, Resampling.nearest))
+    cohesion = np.repeat(cohesion[:, :, np.newaxis], 7, axis=2) / codiv
     cohesion[cohesion == 0] = nodata_cohesion
 
-    friction = friction_raw[:, :, np.newaxis].astype(float)
-    friction = np.repeat(friction, 7, axis=2)
-    friction = np.nan_to_num(friction)
+    friction = np.nan_to_num(resample_to_grid(friction_file, lons, lats, Resampling.nearest)).astype(float)
+    friction = np.repeat(friction[:, :, np.newaxis], 7, axis=2)
     friction[friction == 0] = nodata_friction
 
     with np.errstate(invalid="ignore", divide="ignore"):
         FS = (cohesion / (uwt * thick * np.sin(slopestack * np.pi / 180.0))
               + np.tan(friction * np.pi / 180.0) / np.tan(slopestack * np.pi / 180.0))
     FS[FS < fsthresh] = fsthresh
-
     Ac = (FS - 1) * np.sin(slopestack * np.pi / 180.0)
     Ac[Ac < acthresh] = acthresh
 
-    PGA = np.repeat((pga_pctg / 100.0)[:, :, np.newaxis], 7, axis=2)  # convert %g -> g
-
-    # J_PGA model, Jibson (2007) eq. 6
+    PGA = np.repeat((pga_pctg / 100.0)[:, :, np.newaxis], 7, axis=2)
     C1, C2, C3 = 0.215, 2.341, -1.438
     with np.errstate(invalid="ignore", divide="ignore"):
         Dn = 10.0 ** (C1 + np.log10(((1 - Ac / PGA) ** C2) * (Ac / PGA) ** C3))
@@ -168,33 +126,23 @@ def compute_godt2008(lons, lats, pga_pctg, slope_dir, cohesion_file, friction_fi
     PROB_final = np.zeros_like(PROB)
     for count, prob in lookup.items():
         PROB_final[PROB == count] = prob
-
     PROB_final[slopestack[:, :, 6] <= slopemin] = 0.0
     return PROB_final
 
 
 def compute_nowicki2014(lons, lats, pgv, slope_max_file, friction_file, cti_file,
                          minpga=2.0, nodata_friction=26.0):
-
     COEFFS = {"b0": -3.6490, "b1": 0.0133, "b2": 0.0364,
               "b3": -0.0635, "b4": -0.0004, "b5": 0.0019}
-
     slope_max = resample_to_grid(slope_max_file, lons, lats, Resampling.bilinear) / 100.0
     friction = resample_to_grid(friction_file, lons, lats, Resampling.nearest)
     cti = resample_to_grid(cti_file, lons, lats, Resampling.bilinear)
-
     friction_filled = np.nan_to_num(friction, nan=nodata_friction)
     cti_filled = np.nan_to_num(cti, nan=0.0)
-
     pgv_clip = np.clip(pgv, 0.0, 170.0)
-
-    X = (COEFFS["b0"]
-         + COEFFS["b1"] * pgv_clip
-         + COEFFS["b2"] * slope_max
-         + COEFFS["b3"] * friction_filled
-         + COEFFS["b4"] * (cti_filled * 100)
+    X = (COEFFS["b0"] + COEFFS["b1"] * pgv_clip + COEFFS["b2"] * slope_max
+         + COEFFS["b3"] * friction_filled + COEFFS["b4"] * (cti_filled * 100)
          + COEFFS["b5"] * pgv_clip * slope_max)
-
     P = 1.0 / (1.0 + np.exp(-X))
     P[pgv_clip < minpga] = np.nan
     return P
@@ -207,7 +155,6 @@ def compute_zhu2017(lons, lats, pgv, vs30_file, precip_file, wtd_file, dc_file, 
     dc = resample_to_grid(dc_file, lons, lats, Resampling.bilinear)
     dr = resample_to_grid(dr_file, lons, lats, Resampling.bilinear)
     dw = np.minimum(dc, dr)
-
     with np.errstate(invalid="ignore", divide="ignore"):
         X = (8.801 + 0.334 * np.log(pgv) - 1.918 * np.log(vs30)
              + 0.0005408 * precip - 0.2054 * dw - 0.0333 * wtd)
@@ -217,50 +164,76 @@ def compute_zhu2017(lons, lats, pgv, vs30_file, precip_file, wtd_file, dc_file, 
     P[np.isnan(vs30) | np.isnan(precip) | np.isnan(wtd) | np.isnan(dw)] = np.nan
     return P
 
+
 def derive_land_mask(lons, lats, landmask_source_file):
-    """Derive a land/ocean mask from any raster whose nodata pattern marks
-    ocean (e.g. the friction or cohesion file). Used to draw a coastline
-    without needing NaturalEarth network access."""
     raw = resample_to_grid(landmask_source_file, lons, lats, Resampling.nearest)
     land = ~np.isnan(raw)
     land = binary_closing(binary_fill_holes(land), structure=np.ones((3, 3)))
     return land
 
+
+def panel_stats(data, threshold):
+    valid = data[~np.isnan(data)]
+    if len(valid) == 0:
+        return 0.0, 0.0
+    above = float(np.sum(data > threshold))
+    return float(np.nanmax(data)), 100.0 * above / len(valid)
+
+
 def plot_three_panel(lons, lats, godt_prob, nowicki_prob, liq_prob,
-                      land_mask, event_meta, outfile):
+                      land_mask, event_meta, outfile,
+                      rupture_file=None, contours_file=None, hillshade_file=None):
     extent = [lons.min(), lons.max(), lats.min(), lats.max()]
     epi_lat, epi_lon = event_meta["lat"], event_meta["lon"]
     proj = ccrs.PlateCarree()
     LON, LAT = np.meshgrid(lons, lats)
 
-    fig = plt.figure(figsize=(18, 6))
-
-    godt_lims = [0.05, 0.10, 0.20, 0.42, 0.65, 0.81, 1.0]
+    # bins from default config files
+    godt_lims    = [0.05, 0.10, 0.20, 0.42, 0.65, 0.81, 1.0]
     nowicki_lims = [0.07, 0.13, 0.25, 0.53, 0.81, 0.96, 1.0]
+    zhu_lims     = [0.002, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5]   # from zhu_2017_general.ini
 
     panels = [
         ("Landslide \u2014 Godt and others (2008)\nProportion of Area Affected",
-         godt_prob, godt_lims, 0.05),
+         godt_prob, godt_lims, 0.05, False),
         ("Landslide \u2014 Nowicki and others (2014)\nProbability of any landslide",
-         nowicki_prob, nowicki_lims, 0.07),
+         nowicki_prob, nowicki_lims, 0.07, True),
         ("Liquefaction \u2014 Zhu and others (2017), Model 2",
-         liq_prob, None, 0.02),
+         liq_prob, zhu_lims, 0.002, True),
     ]
 
-    for i, (title, data, lims, maskthresh) in enumerate(panels):
+    hillshade = None
+    if hillshade_file and os.path.exists(hillshade_file):
+        hillshade = resample_to_grid(hillshade_file, lons, lats, Resampling.bilinear)
+
+    rupture_geoms = None
+    if rupture_file and os.path.exists(rupture_file):
+        with open(rupture_file) as f:
+            rupture_geoms = json.load(f)
+
+    contour_geoms = None
+    if contours_file and os.path.exists(contours_file):
+        with open(contours_file) as f:
+            contour_geoms = json.load(f)
+
+    fig = plt.figure(figsize=(18, 6))
+
+    for i, (title, data, lims, maskthresh, show_stats) in enumerate(panels):
         ax = fig.add_subplot(1, 3, i + 1, projection=proj)
         ax.set_extent(extent, crs=proj)
         cmap = cm.CMRmap_r.copy()
         cmap.set_bad([0, 0, 0, 0])
         dm = np.ma.masked_where((np.isnan(data)) | (data < maskthresh), data)
 
-        if lims is not None:
-            norm = mcolors.BoundaryNorm(lims, cmap.N)
-            im = ax.imshow(dm, extent=extent, origin="upper", transform=proj,
-                            cmap=cmap, norm=norm, interpolation="none", alpha=0.8, zorder=3)
-        else:
-            im = ax.imshow(dm, extent=extent, origin="upper", transform=proj,
-                            cmap=cmap, vmin=0, vmax=0.5, interpolation="none", alpha=0.8, zorder=3)
+        # hillshade behind model overlay
+        if hillshade is not None:
+            hs_norm = (hillshade - np.nanmin(hillshade)) / (np.nanptp(hillshade) + 1e-8)
+            ax.imshow(hs_norm, extent=extent, origin="upper", transform=proj,
+                      cmap="gray", vmin=0, vmax=1, zorder=1)
+
+        norm = mcolors.BoundaryNorm(lims, cmap.N)
+        im = ax.imshow(dm, extent=extent, origin="upper", transform=proj,
+                       cmap=cmap, norm=norm, interpolation="none", alpha=0.8, zorder=3)
         cb = fig.colorbar(im, ax=ax, fraction=0.045, pad=0.04)
         cb.set_label("Probability / Proportion", fontsize=9)
 
@@ -271,8 +244,43 @@ def plot_three_panel(lons, lats, godt_prob, nowicki_prob, liq_prob,
         ocean_rgba[~land_mask] = [0.72, 0.86, 0.96, 0.5]
         ax.imshow(ocean_rgba, extent=extent, origin="upper", transform=proj, zorder=2)
 
+        # shaking contours
+        if contour_geoms:
+            for feat in contour_geoms.get("features", []):
+                geom = feat["geometry"]
+                for coord_seq in (geom["coordinates"] if geom["type"] == "MultiLineString"
+                                  else [geom["coordinates"]]):
+                    xs = [c[0] for c in coord_seq]
+                    ys = [c[1] for c in coord_seq]
+                    ax.plot(xs, ys, "k--", linewidth=0.6, transform=proj, zorder=6)
+
+        # finite fault
+        if rupture_geoms:
+            for feat in rupture_geoms.get("features", []):
+                geom = feat["geometry"]
+                coords = geom.get("coordinates", [])
+                if geom["type"] in ("MultiLineString",):
+                    for seg in coords:
+                        xs = [c[0] for c in seg]
+                        ys = [c[1] for c in seg]
+                        ax.plot(xs, ys, "r-", linewidth=1.5, transform=proj, zorder=7)
+                elif geom["type"] == "LineString":
+                    xs = [c[0] for c in coords]
+                    ys = [c[1] for c in coords]
+                    ax.plot(xs, ys, "r-", linewidth=1.5, transform=proj, zorder=7)
+
+        # epicenter
         ax.plot(epi_lon, epi_lat, "*", mec="k", mfc="none", mew=1.2, ms=14,
                 transform=proj, zorder=10)
+
+        # summary stats for preferred models (Nowicki, Zhu)
+        if show_stats:
+            mx, pct = panel_stats(data, maskthresh)
+            stats_txt = f"Max P: {mx:.3f}\nArea >threshold: {pct:.1f}%"
+            ax.text(0.02, 0.02, stats_txt, transform=ax.transAxes,
+                    fontsize=7, va="bottom", ha="left",
+                    bbox=dict(boxstyle="round", facecolor="white", alpha=0.75, pad=0.3))
+
         gl = ax.gridlines(draw_labels=True, linewidth=0.4, color="gray", alpha=0.6)
         gl.top_labels = False
         gl.right_labels = False
@@ -305,65 +313,34 @@ DEFAULT_SLOPE_SUBDIR = "global_Verdin_slopes_resampled_degx100"
 
 
 def resolve_path(explicit, datadir, default_name, label):
-    """Return explicit path if given, else datadir/default_name if it exists."""
-    import os
     if explicit is not None:
         return explicit
     if datadir is None:
-        raise SystemExit(
-            "Missing --%s and no --datadir given to default it from." % label)
+        raise SystemExit("Missing --%s and no --datadir given." % label)
     candidate = os.path.join(datadir, default_name)
     if not os.path.exists(candidate):
-        raise SystemExit(
-            "--%s not given and default not found at: %s\n"
-            "Pass --%s explicitly if your file uses a different name."
-            % (label, candidate, label))
+        raise SystemExit("--%s not given and default not found at: %s" % (label, candidate))
     return candidate
 
 
 def main():
-    import os
-
     p = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--shakefile", required=True, help="ShakeMap grid.xml")
-    p.add_argument("--datadir", default=None,
-                    help="Directory containing the standard gfail input rasters "
-                         "(global_cohesion_10i_kPa.flt, global_friction_deg.flt, etc.) "
-                         "and the slope quantile subdirectory. When given, individual "
-                         "--cohesion/--friction/etc. flags become optional.")
-
-    p.add_argument("--slope-dir", default=None,
-                    help="Directory containing slope_min/10/30/50/70/90/max.bil "
-                         "(default: <datadir>/%s, or <datadir> itself if that "
-                         "subdir doesn't exist)" % DEFAULT_SLOPE_SUBDIR)
-    p.add_argument("--cohesion", default=None,
-                    help="global cohesion raster, kPa x10 scaled (default: <datadir>/%s)"
-                         % DEFAULT_FILENAMES["cohesion"])
-    p.add_argument("--friction", default=None,
-                    help="global friction angle raster, degrees (default: <datadir>/%s)"
-                         % DEFAULT_FILENAMES["friction"])
-    p.add_argument("--cti", default=None,
-                    help="global compound topographic index raster (default: <datadir>/%s)"
-                         % DEFAULT_FILENAMES["cti"])
-    p.add_argument("--vs30", default=None,
-                    help="global Vs30 raster, m/s (default: <datadir>/%s)"
-                         % DEFAULT_FILENAMES["vs30"])
-    p.add_argument("--precip", default=None,
-                    help="global annual precipitation raster, mm (default: <datadir>/%s)"
-                         % DEFAULT_FILENAMES["precip"])
-    p.add_argument("--wtd", default=None,
-                    help="global water table depth raster, m (default: <datadir>/%s)"
-                         % DEFAULT_FILENAMES["wtd"])
-    p.add_argument("--dc", default=None,
-                    help="distance to coast raster, km (default: <datadir>/%s)"
-                         % DEFAULT_FILENAMES["dc"])
-    p.add_argument("--dr", default=None,
-                    help="distance to river raster, km (default: <datadir>/%s)"
-                         % DEFAULT_FILENAMES["dr"])
-    p.add_argument("--outfile", default="groundfailure_map.png", help="Output PNG path")
-
-    # Godt 2008 model parameters (defaults from godt_2008.ini)
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--shakefile", required=True)
+    p.add_argument("--datadir", default=None)
+    p.add_argument("--slope-dir", default=None)
+    p.add_argument("--cohesion", default=None)
+    p.add_argument("--friction", default=None)
+    p.add_argument("--cti", default=None)
+    p.add_argument("--vs30", default=None)
+    p.add_argument("--precip", default=None)
+    p.add_argument("--wtd", default=None)
+    p.add_argument("--dc", default=None)
+    p.add_argument("--dr", default=None)
+    p.add_argument("--outfile", default="groundfailure_map.png")
+    p.add_argument("--rupture", default=None, help="Path to rupture.json (ShakeMap products)")
+    p.add_argument("--contours", default=None, help="Path to a ShakeMap contour GeoJSON (e.g. cont_mmi.json)")
+    p.add_argument("--hillshade", default=None, help="Path to a hillshade raster (optional)")
     p.add_argument("--thick", type=float, default=2.4)
     p.add_argument("--uwt", type=float, default=15.7)
     p.add_argument("--codiv", type=float, default=10.0)
@@ -373,14 +350,15 @@ def main():
     p.add_argument("--acthresh", type=float, default=0.05)
     p.add_argument("--dnthresh", type=float, default=5.0)
     p.add_argument("--slopemin", type=float, default=0.01)
-
-    # Nowicki 2014 model parameters (defaults from nowicki_2014_global.ini)
-    p.add_argument("--minpga", type=float, default=2.0,
-                    help="Min threshold (cm/s) applied to PGV despite the name -- see docstring")
-
+    p.add_argument("--minpga", type=float, default=2.0)
     args = p.parse_args()
 
-    # Resolve any file paths not explicitly given, using --datadir + standard names
+    for key in DEFAULT_FILENAMES:
+        if getattr(args, key.replace("-", "_")) is None:
+            setattr(args, key, resolve_path(None, args.datadir, DEFAULT_FILENAMES[key], key))
+        else:
+            setattr(args, key, getattr(args, key))
+
     args.cohesion = resolve_path(args.cohesion, args.datadir, DEFAULT_FILENAMES["cohesion"], "cohesion")
     args.friction = resolve_path(args.friction, args.datadir, DEFAULT_FILENAMES["friction"], "friction")
     args.cti = resolve_path(args.cti, args.datadir, DEFAULT_FILENAMES["cti"], "cti")
@@ -392,16 +370,14 @@ def main():
 
     if args.slope_dir is None:
         if args.datadir is None:
-            raise SystemExit("Missing --slope-dir and no --datadir given to default it from.")
+            raise SystemExit("Missing --slope-dir and no --datadir given.")
         candidate = os.path.join(args.datadir, DEFAULT_SLOPE_SUBDIR)
         args.slope_dir = candidate if os.path.isdir(candidate) else args.datadir
         print("Using slope-dir: %s" % args.slope_dir)
 
-    print("Parsing ShakeMap grid...")
     shake = parse_shakemap_grid(args.shakefile)
     lons, lats = shake["lons"], shake["lats"]
-
-    print("Computing Godt (2008) landslide model...")
+    print("Computing Godt (2008)...")
     godt_prob = compute_godt2008(
         lons, lats, shake["pga"], args.slope_dir, args.cohesion, args.friction,
         thick=args.thick, uwt=args.uwt, codiv=args.codiv,
@@ -409,26 +385,23 @@ def main():
         fsthresh=args.fsthresh, acthresh=args.acthresh,
         dnthresh=args.dnthresh, slopemin=args.slopemin,
     )
-
-    print("Computing Nowicki (2014) landslide model...")
-    import os
+    print("Computing Nowicki (2014)...")
     slope_max_file = os.path.join(args.slope_dir, "slope_max.bil")
     nowicki_prob = compute_nowicki2014(
         lons, lats, shake["pgv"], slope_max_file, args.friction, args.cti,
         minpga=args.minpga, nodata_friction=args.nodata_friction,
     )
-
-    print("Computing Zhu (2017) liquefaction model...")
+    print("Computing Zhu (2017)...")
     liq_prob = compute_zhu2017(
         lons, lats, shake["pgv"], args.vs30, args.precip, args.wtd, args.dc, args.dr,
     )
-
-    print("Deriving coastline from friction raster nodata pattern...")
     land_mask = derive_land_mask(lons, lats, args.friction)
 
-    print("Rendering map...")
     plot_three_panel(lons, lats, godt_prob, nowicki_prob, liq_prob,
-                      land_mask, shake, args.outfile)
+                     land_mask, shake, args.outfile,
+                     rupture_file=args.rupture,
+                     contours_file=args.contours,
+                     hillshade_file=args.hillshade)
 
 
 if __name__ == "__main__":
