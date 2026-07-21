@@ -31,7 +31,7 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 import cartopy.crs as ccrs
-from scipy.ndimage import binary_fill_holes, binary_closing
+from scipy.ndimage import binary_fill_holes, binary_closing, binary_erosion
 
 
 def parse_shakemap_grid(shakefile):
@@ -240,8 +240,12 @@ def plot_three_panel(lons, lats, godt_prob, nowicki_prob, liq_prob,
         # derived coastline
         ax.contour(LON, LAT, land_mask.astype(float), levels=[0.5],
                    colors="dimgray", linewidths=0.7, transform=proj, zorder=5)
+        # erode ocean mask at domain boundary to remove rectangular edge
+        # artifacts that appear when the input raster extent < ShakeMap extent
+        ocean_display = binary_erosion(
+            ~land_mask, structure=np.ones((7, 7)), border_value=0)
         ocean_rgba = np.zeros((*land_mask.shape, 4))
-        ocean_rgba[~land_mask] = [0.72, 0.86, 0.96, 0.5]
+        ocean_rgba[ocean_display] = [0.72, 0.86, 0.96, 0.5]
         ax.imshow(ocean_rgba, extent=extent, origin="upper", transform=proj, zorder=2)
 
         # shaking contours
@@ -375,8 +379,10 @@ def main():
         args.slope_dir = candidate if os.path.isdir(candidate) else args.datadir
         print("Using slope-dir: %s" % args.slope_dir)
 
+    print("Parsing ShakeMap grid...")
     shake = parse_shakemap_grid(args.shakefile)
     lons, lats = shake["lons"], shake["lats"]
+
     print("Computing Godt (2008)...")
     godt_prob = compute_godt2008(
         lons, lats, shake["pga"], args.slope_dir, args.cohesion, args.friction,
@@ -385,18 +391,23 @@ def main():
         fsthresh=args.fsthresh, acthresh=args.acthresh,
         dnthresh=args.dnthresh, slopemin=args.slopemin,
     )
+
     print("Computing Nowicki (2014)...")
     slope_max_file = os.path.join(args.slope_dir, "slope_max.bil")
     nowicki_prob = compute_nowicki2014(
         lons, lats, shake["pgv"], slope_max_file, args.friction, args.cti,
         minpga=args.minpga, nodata_friction=args.nodata_friction,
     )
+
     print("Computing Zhu (2017)...")
     liq_prob = compute_zhu2017(
         lons, lats, shake["pgv"], args.vs30, args.precip, args.wtd, args.dc, args.dr,
     )
+
+    print("Deriving coastline...")
     land_mask = derive_land_mask(lons, lats, args.friction)
 
+    print("Rendering map...")
     plot_three_panel(lons, lats, godt_prob, nowicki_prob, liq_prob,
                      land_mask, shake, args.outfile,
                      rupture_file=args.rupture,
