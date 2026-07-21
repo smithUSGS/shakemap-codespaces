@@ -14,6 +14,11 @@ Usage:
         [--contours  path/to/cont_mmi.json] \
         --outfile    output.html
 
+Produces a single self-contained HTML with landslide map (left) and
+liquefaction map (right). Each map has its own branca colorbars, a
+layer-switcher for multiple models, shaking contours, fault trace,
+epicenter marker, scale bar, and coordinate popup.
+
 Example:
     python plot_gf_interactive.py \
         --ls-model "Nowicki Jessee (2018):~/gf/jessee_model.tif:~/cfg/jessee_2018_slim.ini" \
@@ -147,7 +152,6 @@ def make_branca_colormap(cmap_name, bins, threshold, label):
 
 
 def removeVis(filename, removelater, mapname):
-    """Kate's post-processing: remove .addTo(map) for non-primary layers."""
     replacetext = ".addTo(%s)" % mapname
     with open(filename, "r") as f:
         lines = f.readlines()
@@ -186,6 +190,10 @@ def build_map(models, epicenter, contours_file, rupture_file):
     "</style>"))
 
     map_name = m.get_name()
+    folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m)
+    folium.TileLayer(
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        attr="Esri", name="Satellite").add_to(m)
 
     # Model image overlays
     removelater = []
@@ -201,7 +209,6 @@ def build_map(models, epicenter, contours_file, rupture_file):
         fg.add_to(m)
         if i > 0:
             removelater.append(fg.get_name())
-        # Branca colorbar as native Leaflet control
         cb = make_branca_colormap(
             r["cmap_name"], r["bins"], r["threshold"],
             "%s (max P=%.3f)" % (r["label"], r["max_p"]))
@@ -251,8 +258,7 @@ def build_map(models, epicenter, contours_file, rupture_file):
             location=[epi_lat, epi_lon],
             icon=folium.DivIcon(
                 html='<div style="width:14px;height:14px;border-radius:50%;'
-                     'background:white;border:2.5px solid black;'
-                     'margin-left:-7px;margin-top:-7px;"></div>',
+                    'background:white;border:2.5px solid black;"></div>',
                 icon_size=(14, 14),
                 icon_anchor=(7, 7),
             ),
