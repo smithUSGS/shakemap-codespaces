@@ -1,4 +1,4 @@
- {
+{
   "name": "ShakeMap Workshop (v4.4.9)",
 
   "build": {
@@ -15,12 +15,20 @@
         "ms-python.python"
       ],
       "settings": {
-        "terminal.integrated.defaultProfile.linux": "bash"
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "terminal.integrated.fontSize": 14,
+        "workbench.startupEditor": "none",
+        "explorer.confirmDelete": false,
+        "files.simpleDialog.enable": true
       }
     }
   },
 
+  "workspaceMountConsistency": "cached",
+
   "remoteUser": "vscode",
 
-  "postCreateCommand": "bash -lc 'conda activate shakemap && shake -v && echo \"ShakeMap ready — try: sm_profile -l\"'"
+  "postCreateCommand": "bash -lc 'conda activate shakemap && shake -v 2>&1 | head -1'",
+
+  "postAttachCommand": "bash -lc 'echo \"\" && echo \"╔══════════════════════════════════════════════════════════════╗\" && echo \"║       ShakeMap + Ground Failure Workshop Environment         ║\" && echo \"║                      v4.4.9                                  ║\" && echo \"╚══════════════════════════════════════════════════════════════╝\" && echo \"\" && echo \"Two demo events are pre-staged and ready to run:\" && echo \"  ci3144585  — 1994 Northridge M6.7 (California)\" && echo \"  us6000jlqa — 2023 Kahramanmaras M7.5 (Turkey)\" && echo \"\" && echo \"Quick start:\" && echo \"  shake ci3144585 assemble -c demo model contour mapping\" && echo \"\" && echo \"See README.md for full instructions.\" && echo \"\"'"
 }
