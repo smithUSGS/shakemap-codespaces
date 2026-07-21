@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-plot_gf_interactive.py — interactive HTML map of a groundfailure model output.
+plot_gf_interactive.py — interactive HTML map of groundfailure model output(s).
 
-Usage:
+Usage (single model, legacy mode):
     python plot_gf_interactive.py --tif <model.tif> --outfile <output.html>
                                   [--title "My map title"]
                                   [--config  path/to/model.ini]
@@ -11,21 +11,36 @@ Usage:
                                   [--contours path/to/cont_mmi.json]
                                   [--threshold 0.002]
 
+Usage (multi-model layer switch):
+    python plot_gf_interactive.py --outfile <output.html> \\
+        --model "LABEL:TIF:CONFIG" [--model "LABEL:TIF:CONFIG" ...] \\
+        [--shakefile path/to/grid.xml] [--rupture path/to/rupture.json] \\
+        [--contours path/to/cont_mmi.json] [--threshold 0.002]
+
 Arguments:
-    --tif        Path to a groundfailure _model.tif (from gfailbin --gis)
-    --outfile    Output HTML file (default: groundfailure_map.html)
-    --title      Map title shown in legend (default: Ground Failure Model)
-    --config     Path to the gfailbin .ini config for this model -- reads bins
+    --tif        Path to a groundfailure _model.tif (from gfailbin --gis).
+                 Single-model mode; ignored if --model is given.
+    --config     Path to the gfailbin .ini config for --tif -- reads bins
                  and colormap from [[display_options]] so the map matches the
-                 static plot and operational kmz output exactly
+                 static plot and operational kmz output exactly.
+                 Single-model mode; ignored if --model is given.
+    --model      Repeatable. Format LABEL:TIF:CONFIG, e.g.
+                 "Nowicki Jessee and others (2017):path/to/jessee.tif:path/to/jessee.ini"
+                 Give this flag 2-3 times to build a layer-switchable map
+                 (base layers, one active at a time, toggled via the layer
+                 control in the bottom-right corner).
+    --outfile    Output HTML file (default: groundfailure_map.html)
+    --title      Map title shown in legend, single-model mode only
+                 (default: Ground Failure Model)
     --shakefile  ShakeMap grid.xml -- adds epicenter marker and event metadata
     --rupture    rupture.json from ShakeMap products -- adds finite fault overlay
     --contours   A ShakeMap contour GeoJSON (e.g. cont_mmi.json) -- adds
                  shaking contours as a toggleable layer
     --threshold  Values below this are masked/transparent (default: from config,
-                 or 0.002 if no config given)
+                 or 0.002 if no config given). Applied to every model in
+                 --model mode.
 
-Example:
+Example (single model):
     python plot_gf_interactive.py \\
         --tif ~/gf_turkey/us6000jlqa/us6000jlqa_nowicki_2014_global_slim_model.tif \\
         --config ~/groundfailure/defaultconfigfiles/models/nowicki_2014_global_slim.ini \\
@@ -34,6 +49,16 @@ Example:
         --contours ~/shakemap_profiles/default/data/us6000jlqa/current/products/cont_mmi.json \\
         --outfile ~/turkey_gf_map.html \\
         --title "Nowicki 2014 Landslide — Turkey M7.5"
+
+Example (layer switch across three models):
+    python plot_gf_interactive.py \\
+        --model "Godt and others (2008):~/gf/us6000jlqa_godt_2008_model.tif:~/cfg/godt_2008.ini" \\
+        --model "Nowicki and others (2014):~/gf/us6000jlqa_nowicki_2014_global_slim_model.tif:~/cfg/nowicki_2014_global_slim.ini" \\
+        --model "Nowicki Jessee and others (2017):~/gf/us6000jlqa_jessee_2018_model.tif:~/cfg/jessee_2018.ini" \\
+        --shakefile ~/shakemap_profiles/default/data/us6000jlqa/current/products/grid.xml \\
+        --rupture ~/shakemap_profiles/default/data/us6000jlqa/current/products/rupture.json \\
+        --contours ~/shakemap_profiles/default/data/us6000jlqa/current/products/cont_mmi.json \\
+        --outfile ~/turkey_gf_map.html
 """
 
 import argparse
@@ -156,55 +181,85 @@ def panel_stats(tif_path, threshold):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Interactive HTML map of a groundfailure model output.",
+        description="Interactive HTML map of groundfailure model output(s).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__)
-    parser.add_argument("--tif", required=True)
+    parser.add_argument("--tif", required=False,
+                         help="Single-model mode (legacy). Ignored if --model is given.")
     parser.add_argument("--outfile", default="groundfailure_map.html")
     parser.add_argument("--title", default="Ground Failure Model")
-    parser.add_argument("--config", default=None)
+    parser.add_argument("--config", default=None,
+                         help="Single-model mode (legacy). Ignored if --model is given.")
+    parser.add_argument("--model", action="append", default=None,
+                         help="Repeatable. Format LABEL:TIF:CONFIG. Give this "
+                              "flag 2-3 times to build a layer-switchable map.")
     parser.add_argument("--shakefile", default=None)
     parser.add_argument("--rupture", default=None)
     parser.add_argument("--contours", default=None)
     parser.add_argument("--threshold", type=float, default=None)
     args = parser.parse_args()
 
-    # read bins, cmap, threshold from config if provided
-    bins, cfg_threshold, cfg_cmap = (None, None, None)
-    if args.config:
-        bins, cfg_threshold, cfg_cmap = read_config(args.config)
-
-    threshold = args.threshold or cfg_threshold or 0.002
-    cmap_name = cfg_cmap or "CMRmap_r"
+    # build the list of (label, tif, config) to render as switchable layers.
+    # falls back to single --tif/--config for backward compatibility with
+    # existing callers that don't pass --model.
+    if args.model:
+        model_specs = []
+        for spec in args.model:
+            label, tif_path, cfg_path = spec.split(":", 2)
+            model_specs.append((label, tif_path, cfg_path))
+    else:
+        if not args.tif:
+            parser.error("must pass either --tif or one or more --model")
+        model_specs = [(args.title, args.tif, args.config)]
 
     # epicenter from shakefile
     epi_lat, epi_lon, magnitude, description = (None, None, None, "")
     if args.shakefile:
         epi_lat, epi_lon, magnitude, description = get_epicenter(args.shakefile)
 
-    # stats
-    max_p, pct_above = panel_stats(args.tif, threshold)
+    # render every model in the list; each becomes one switchable base layer.
+    # NOTE: colorbar/stats panel below only reflects model_specs[0] -- if a
+    # viewer switches to a different layer, the footer won't update to match.
+    # flagging this rather than silently shipping a mismatched colorbar.
+    rendered = []
+    for label, tif_path, cfg_path in model_specs:
+        bins, cfg_threshold, cfg_cmap = (None, None, None)
+        if cfg_path:
+            bins, cfg_threshold, cfg_cmap = read_config(cfg_path)
+        threshold = args.threshold or cfg_threshold or 0.002
+        cmap_name = cfg_cmap or "CMRmap_r"
+        print(f"Reading {tif_path}...")
+        img_b64, bounds, vmin, vmax, norm, cmap = tif_to_png_overlay(
+            tif_path, cmap_name, bins, threshold)
+        max_p, pct_above = panel_stats(tif_path, threshold)
+        rendered.append({
+            "label": label, "img_b64": img_b64, "bounds": bounds,
+            "norm": norm, "cmap": cmap, "bins": bins,
+            "max_p": max_p, "pct_above": pct_above, "threshold": threshold,
+        })
 
-    print(f"Reading {args.tif}...")
-    img_b64, bounds, vmin, vmax, norm, cmap = tif_to_png_overlay(
-        args.tif, cmap_name, bins, threshold)
-
-    west, south, east, north = bounds
+    west, south, east, north = rendered[0]["bounds"]
     center_lat = (south + north) / 2
     center_lon = (west + east) / 2
 
     m = folium.Map(location=[center_lat, center_lon], zoom_start=7,
-                   tiles="OpenStreetMap")
+                   tiles="https://stamen-tiles-{s}.a.ssl.fastly.net/terrain/{z}/{x}/{y}.jpg",
+                   attr="Stamen Terrain", control_scale=True)
+    folium.LatLngPopup().add_to(m)
+    folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m)
     folium.TileLayer("CartoDB positron", name="Light basemap").add_to(m)
     folium.TileLayer(
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         attr="Esri", name="Satellite").add_to(m)
 
-    folium.raster_layers.ImageOverlay(
-        image=f"data:image/png;base64,{img_b64}",
-        bounds=[[south, west], [north, east]],
-        opacity=1.0, name=args.title, interactive=False, zindex=1,
-    ).add_to(m)
+    base_layers = {}
+    for r in rendered:
+        w, s, e, n = r["bounds"]
+        base_layers[r["label"]] = folium.raster_layers.ImageOverlay(
+            image=f"data:image/png;base64,{r['img_b64']}",
+            bounds=[[s, w], [n, e]],
+            opacity=0.8, name=r["label"], interactive=False, zindex=1,
+        ).add_to(m)
 
     # shaking contours
     if args.contours and os.path.exists(args.contours):
@@ -229,17 +284,18 @@ def main():
             icon=folium.Icon(icon="star", color="red", prefix="fa")
         ).add_to(m)
 
-    folium.LayerControl().add_to(m)
+    folium.LayerControl(position="bottomright", collapsed=False).add_to(m)
 
-    cb_b64 = make_colorbar(cmap, norm, bins, "Probability")
-    stats_html = (f"Max P: {max_p:.3f} &nbsp;|&nbsp; "
-                  f"Area &gt;threshold: {pct_above:.1f}%")
+    primary = rendered[0]
+    cb_b64 = make_colorbar(primary["cmap"], primary["norm"], primary["bins"], "Probability")
+    stats_html = (f"Max P: {primary['max_p']:.3f} &nbsp;|&nbsp; "
+                  f"Area &gt;threshold: {primary['pct_above']:.1f}%")
     colorbar_html = f"""
     <div style="position:fixed; bottom:30px; left:30px; z-index:1000;
                 background:white; padding:8px 12px; border-radius:6px;
                 box-shadow:2px 2px 6px rgba(0,0,0,0.3); min-width:280px;">
         <div style="font-size:12px; font-weight:bold; margin-bottom:4px;">
-            {args.title}</div>
+            {primary['label']} (colorbar reflects this layer only)</div>
         <img src="data:image/png;base64,{cb_b64}" style="width:100%;">
         <div style="font-size:10px; margin-top:4px; color:#444;">
             {stats_html}</div>
@@ -249,9 +305,10 @@ def main():
 
     m.save(args.outfile)
     print(f"Saved: {args.outfile}")
-    print(f"Max probability: {max_p:.4f}")
-    print(f"Area above threshold ({threshold}): {pct_above:.1f}%")
-    
+    for r in rendered:
+        print(f"[{r['label']}] max probability: {r['max_p']:.4f}, "
+              f"area above threshold ({r['threshold']}): {r['pct_above']:.1f}%")
+
 
 if __name__ == "__main__":
     main()
