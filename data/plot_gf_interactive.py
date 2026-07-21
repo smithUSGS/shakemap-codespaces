@@ -1,72 +1,59 @@
 #!/usr/bin/env python3
 """
-plot_gf_interactive.py — interactive HTML map of groundfailure model output(s).
+plot_gf_interactive.py
 
-Usage (single model):
-    python plot_gf_interactive.py --tif <model.tif> --outfile <output.html>
-                                  [--title "My map title"]
-                                  [--config  path/to/model.ini]
-                                  [--shakefile path/to/grid.xml]
-                                  [--rupture  path/to/rupture.json]
-                                  [--contours path/to/cont_mmi.json]
-                                  [--threshold 0.002]
+Creates two side-by-side interactive HTML maps (landslides + liquefaction)
+from groundfailure model outputs, following the USGS operational style.
 
-Usage (multi-model layer switch):
-    python plot_gf_interactive.py --outfile <output.html> \\
-        --model "LABEL:TIF:CONFIG" [--model "LABEL:TIF:CONFIG" ...] \\
-        [--shakefile path/to/grid.xml] [--rupture path/to/rupture.json] \\
-        [--contours path/to/cont_mmi.json]
+Usage:
+    python plot_gf_interactive.py \
+        --ls-model "LABEL:TIF:CONFIG" [--ls-model ...] \
+        --lq-model "LABEL:TIF:CONFIG" [--lq-model ...] \
+        [--shakefile path/to/grid.xml] \
+        [--rupture   path/to/rupture.json] \
+        [--contours  path/to/cont_mmi.json] \
+        --outfile    output.html
 
-    --model format: "LABEL:TIF:CONFIG"
-    e.g. "Nowicki Jessee (2018):~/gf/jessee_model.tif:~/cfg/jessee_2018_slim.ini"
-    Repeat --model 2-3 times to build a layer-switchable map.
-
-Other arguments:
-    --shakefile  ShakeMap grid.xml -- adds epicenter marker
-    --rupture    rupture.json -- adds finite fault trace overlay
-    --contours   ShakeMap contour GeoJSON (e.g. cont_mmi.json)
-    --threshold  Mask values below this (default: from config or 0.002)
-
-Example (multi-model, Turkey):
-    python plot_gf_interactive.py \\
-        --model "Nowicki Jessee (2018):~/gf_turkey/us6000jlqa/us6000jlqa_jessee_2018_slim_model.tif:~/groundfailure/defaultconfigfiles/models/jessee_2018_slim.ini" \\
-        --model "Zhu and others (2017):~/gf_turkey/us6000jlqa/us6000jlqa_zhu_2017_general_slim_model.tif:~/groundfailure/defaultconfigfiles/models/zhu_2017_general_slim.ini" \\
-        --shakefile ~/shakemap_profiles/default/data/us6000jlqa/current/products/grid.xml \\
-        --rupture ~/shakemap_profiles/default/data/us6000jlqa/current/products/rupture.json \\
-        --contours ~/shakemap_profiles/default/data/us6000jlqa/current/products/cont_mmi.json \\
-        --outfile ~/turkey_gf_map.html
+Example:
+    python plot_gf_interactive.py \
+        --ls-model "Nowicki Jessee (2018):~/gf/jessee_model.tif:~/cfg/jessee_2018_slim.ini" \
+        --lq-model "Zhu and others (2017):~/gf/zhu_model.tif:~/cfg/zhu_2017_general_slim.ini" \
+        --shakefile ~/shakemap_profiles/default/data/us6000jlqa/current/products/grid.xml \
+        --contours  ~/shakemap_profiles/default/data/us6000jlqa/current/products/cont_mmi.json \
+        --outfile   ~/turkey_gf.html
 """
 
 import argparse
-import io
 import base64
+import io
 import os
+import tempfile
 import xml.etree.ElementTree as ET
 
-import numpy as np
+import branca.colormap as cmb
+import folium
 import matplotlib
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import matplotlib.pyplot as plt
+import numpy as np
 import rasterio
 import rasterio.warp
-import folium
 
 
 def read_config(config_path):
     try:
         from configobj import ConfigObj
         cfg = ConfigObj(config_path)
-        model_name = list(cfg.keys())[0]
-        disp = cfg[model_name].get("display_options", {})
-        lims_str = disp.get("lims", {}).get("model", None)
-        thresh_str = disp.get("maskthresholds", {}).get("model", None)
-        cmap_str = disp.get("colors", {}).get("model", None)
-        bins = ([float(x.strip()) for x in lims_str.split(",")]
-                if lims_str and lims_str != "None" else None)
-        threshold = (float(thresh_str)
-                     if thresh_str and thresh_str != "None" else None)
-        cmap = cmap_str.replace("cm.", "") if cmap_str and cmap_str != "None" else None
+        mn = list(cfg.keys())[0]
+        disp = cfg[mn].get("display_options", {})
+        ls = disp.get("lims", {}).get("model", None)
+        ts = disp.get("maskthresholds", {}).get("model", None)
+        cs = disp.get("colors", {}).get("model", None)
+        bins = ([float(x.strip()) for x in ls.split(",")]
+                if ls and ls != "None" else None)
+        threshold = (float(ts) if ts and ts != "None" else None)
+        cmap = cs.replace("cm.", "") if cs and cs != "None" else None
         return bins, threshold, cmap
     except Exception:
         return None, None, None
@@ -84,68 +71,59 @@ def get_epicenter(shakefile):
         return None, None, None, ""
 
 
-def tif_to_png_overlay(tif_path, cmap_name, bins, threshold):
+def get_title(shakefile):
+    try:
+        ns = {"sm": "http://earthquake.usgs.gov/eqcenter/shakemap"}
+        root = ET.parse(shakefile).getroot()
+        ev = root.find("sm:event", ns).attrib
+        ts = ev.get("event_timestamp", "")[:10]
+        return "M%.1f %s \u2014 %s" % (
+            float(ev.get("magnitude", 0)), ts,
+            ev.get("event_description", ""))
+    except Exception:
+        return "Ground Failure"
+
+
+def tif_to_rgba(tif_path, cmap_name, bins, threshold):
     with rasterio.open(tif_path) as src:
         data = src.read(1).astype(float)
         nodata = src.nodata
-        bounds_src = src.bounds
+        b = src.bounds
         crs = src.crs
         if crs.to_epsg() != 4326:
-            bounds_wgs84 = rasterio.warp.transform_bounds(
-                crs, "EPSG:4326",
-                bounds_src.left, bounds_src.bottom,
-                bounds_src.right, bounds_src.top)
+            bounds = rasterio.warp.transform_bounds(
+                crs, "EPSG:4326", b.left, b.bottom, b.right, b.top)
         else:
-            bounds_wgs84 = (bounds_src.left, bounds_src.bottom,
-                            bounds_src.right, bounds_src.top)
-
+            bounds = (b.left, b.bottom, b.right, b.top)
     if nodata is not None:
         data[data == nodata] = np.nan
     data[data < threshold] = np.nan
-
     cmap = plt.get_cmap(cmap_name)
     if bins is not None:
         norm = mcolors.BoundaryNorm(bins, cmap.N)
-        vmin, vmax = bins[0], bins[-1]
     else:
         vmin = float(np.nanpercentile(data, 2))
         vmax = float(np.nanpercentile(data, 98))
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-
     rgba = cmap(norm(data))
-    rgba[..., 3] = np.where(np.isnan(data), 0, 0.65)   # Kate: more transparency
+    rgba[..., 3] = np.where(np.isnan(data), 0, 0.7)
+    rgba_uint8 = (rgba * 255).astype(np.uint8)
+    return rgba_uint8, bounds, norm, cmap
 
+
+def rgba_to_b64(rgba_uint8):
     buf = io.BytesIO()
-    plt.imsave(buf, rgba, format="png")
+    plt.imsave(buf, rgba_uint8.astype(np.float32) / 255.0, format="png")
     buf.seek(0)
-    img_b64 = base64.b64encode(buf.read()).decode("utf-8")
-    return img_b64, bounds_wgs84, vmin, vmax, norm, cmap
-
-
-def make_colorbar(cmap, norm, bins, title):
-    fig, ax = plt.subplots(figsize=(4, 0.4))
-    fig.subplots_adjust(bottom=0.5)
-    cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap),
-                      cax=ax, orientation="horizontal")
-    if bins is not None:
-        cb.set_ticks(bins)
-        cb.set_ticklabels([str(b) for b in bins])
-    cb.set_label(title, fontsize=9)
-    ax.tick_params(labelsize=7)
-    buf = io.BytesIO()
-    plt.savefig(buf, format="png", bbox_inches="tight", transparent=True, dpi=120)
-    buf.seek(0)
-    b64 = base64.b64encode(buf.read()).decode("utf-8")
-    plt.close()
-    return b64
+    return base64.b64encode(buf.read()).decode("utf-8")
 
 
 def panel_stats(tif_path, threshold):
     with rasterio.open(tif_path) as src:
         data = src.read(1).astype(float)
-        nodata = src.nodata
-    if nodata is not None:
-        data[data == nodata] = np.nan
+        nd = src.nodata
+    if nd is not None:
+        data[data == nd] = np.nan
     valid = data[~np.isnan(data)]
     if len(valid) == 0:
         return 0.0, 0.0
@@ -153,137 +131,283 @@ def panel_stats(tif_path, threshold):
     return float(np.nanmax(data)), 100.0 * above / len(valid)
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Interactive HTML map of groundfailure model output(s).",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__)
-    parser.add_argument("--tif", default=None,
-                        help="Single-model mode. Ignored if --model is given.")
-    parser.add_argument("--outfile", default="groundfailure_map.html")
-    parser.add_argument("--title", default="Ground Failure Model")
-    parser.add_argument("--config", default=None,
-                        help="Single-model mode. Ignored if --model is given.")
-    parser.add_argument("--model", action="append", default=None,
-                        help="Repeatable. Format LABEL:TIF:CONFIG")
-    parser.add_argument("--shakefile", default=None)
-    parser.add_argument("--rupture", default=None)
-    parser.add_argument("--contours", default=None)
-    parser.add_argument("--threshold", type=float, default=None)
-    args = parser.parse_args()
-
-    if args.model:
-        model_specs = []
-        for spec in args.model:
-            parts = spec.split(":", 2)
-            if len(parts) != 3:
-                parser.error(f"--model must be LABEL:TIF:CONFIG, got: {spec}")
-            model_specs.append(tuple(parts))
+def make_branca_colormap(cmap_name, bins, threshold, label):
+    cmap_mpl = plt.get_cmap(cmap_name)
+    if bins is not None:
+        norm = mcolors.BoundaryNorm(bins, cmap_mpl.N)
+        mids = [(bins[i] + bins[i + 1]) / 2.0 for i in range(len(bins) - 1)]
+        colors_hex = [mcolors.to_hex(cmap_mpl(norm(m))) for m in mids]
+        return cmb.StepColormap(
+            colors_hex, vmin=bins[0], vmax=bins[-1],
+            index=bins, caption=label)
     else:
-        if not args.tif:
-            parser.error("must pass either --tif or one or more --model")
-        model_specs = [(args.title, args.tif, args.config or "")]
+        colors_hex = [mcolors.to_hex(cmap_mpl(x)) for x in np.linspace(0, 1, 10)]
+        return cmb.LinearColormap(
+            colors_hex, vmin=threshold or 0.0, vmax=1.0, caption=label)
 
-    epi_lat, epi_lon, magnitude, description = (None, None, None, "")
-    if args.shakefile:
-        epi_lat, epi_lon, magnitude, description = get_epicenter(args.shakefile)
 
-    rendered = []
-    for label, tif_path, cfg_path in model_specs:
-        tif_path = os.path.expanduser(tif_path)
-        cfg_path = os.path.expanduser(cfg_path) if cfg_path else ""
-        bins, cfg_threshold, cfg_cmap = (None, None, None)
-        if cfg_path and os.path.exists(cfg_path):
-            bins, cfg_threshold, cfg_cmap = read_config(cfg_path)
-        threshold = args.threshold or cfg_threshold or 0.002
-        cmap_name = cfg_cmap or "CMRmap_r"
-        print(f"Reading {tif_path}...")
-        img_b64, bounds, vmin, vmax, norm, cmap = tif_to_png_overlay(
-            tif_path, cmap_name, bins, threshold)
-        max_p, pct_above = panel_stats(tif_path, threshold)
-        rendered.append({
-            "label": label, "img_b64": img_b64, "bounds": bounds,
-            "norm": norm, "cmap": cmap, "bins": bins,
-            "max_p": max_p, "pct_above": pct_above, "threshold": threshold,
-        })
+def removeVis(filename, removelater, mapname):
+    """Kate's post-processing: remove .addTo(map) for non-primary layers."""
+    replacetext = ".addTo(%s)" % mapname
+    with open(filename, "r") as f:
+        lines = f.readlines()
+    for remove in removelater:
+        newlines = []
+        r1 = False
+        for line in lines:
+            newline = line
+            if "var %s" % remove in line:
+                r1 = True
+            if r1 and replacetext in line:
+                newline = line.replace(replacetext, "")
+                r1 = False
+            newlines.append(newline)
+        lines = newlines
+    with open(filename, "w") as f:
+        f.writelines(lines)
 
-    west, south, east, north = rendered[0]["bounds"]
-    center_lat = (south + north) / 2
-    center_lon = (west + east) / 2
 
-    # use OpenStreetMap as default — Stamen tiles moved to Stadia in 2023
-    # and old URLs are unreliable; add terrain via a named TileLayer instead
+def build_map(models, epicenter, contours_file, rupture_file):
+    if not models:
+        return None, []
+
+    w, s, e, n = models[0]["bounds"]
     m = folium.Map(
-        location=[center_lat, center_lon],
+        location=[(s + n) / 2.0, (w + e) / 2.0],
         zoom_start=7,
-        tiles="OpenStreetMap",
-        control_scale=True,     # scale bar
-    )
-    folium.LatLngPopup().add_to(m)   # click anywhere to see coordinates
+        tiles="CartoDB positron",
+        control_scale=True)
+    folium.LatLngPopup().add_to(m)
+    m.get_root().html.add_child(folium.Element(
+    "<style>"
+    "div.legend{background:rgba(255,255,255,0.92)!important;"
+    "padding:6px 10px!important;border-radius:4px!important;"
+    "color:#000!important;}"
+    "</style>"))
 
-    folium.TileLayer("CartoDB positron", name="Light basemap").add_to(m)
-    folium.TileLayer(
-        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attr="Esri", name="Satellite").add_to(m)
-    folium.TileLayer(
-        tiles="https://tiles.stadiamaps.com/tiles/stamen_terrain/{z}/{x}/{y}.jpg",
-        attr="Stadia / Stamen", name="Terrain").add_to(m)
+    map_name = m.get_name()
 
-    for r in rendered:
-        w, s, e, n = r["bounds"]
+    # Model image overlays
+    removelater = []
+    for i, r in enumerate(models):
+        bw = r["bounds"]
+        img_b64 = rgba_to_b64(r["rgba"])
+        fg = folium.FeatureGroup(name=r["label"], show=True, overlay=True)
         folium.raster_layers.ImageOverlay(
-            image=f"data:image/png;base64,{r['img_b64']}",
-            bounds=[[s, w], [n, e]],
-            opacity=1.0, name=r["label"], interactive=False, zindex=1,
-        ).add_to(m)
+            image="data:image/png;base64," + img_b64,
+            bounds=[[bw[1], bw[0]], [bw[3], bw[2]]],
+            opacity=1.0, interactive=False, zindex=i + 1,
+        ).add_to(fg)
+        fg.add_to(m)
+        if i > 0:
+            removelater.append(fg.get_name())
+        # Branca colorbar as native Leaflet control
+        cb = make_branca_colormap(
+            r["cmap_name"], r["bins"], r["threshold"],
+            "%s (max P=%.3f)" % (r["label"], r["max_p"]))
+        cb.add_to(m)
 
-    if args.contours and os.path.exists(args.contours):
+    if contours_file and os.path.exists(contours_file):
+        contours_layer = folium.GeoJson(
+            contours_file,
+            name="Shaking contours",
+            style_function=lambda x: {
+                "color": "#333", "weight": 2.0,
+                "dashArray": "5,5", "fillOpacity": 0, "opacity": 1.0},
+        )
+        contours_layer.add_to(m)
+        contours_var = contours_layer.get_name()
+
+        m.get_root().html.add_child(folium.Element(
+            "<script>document.addEventListener('DOMContentLoaded',function(){setTimeout(function(){"
+            "try{"
+            "var lm=window['%s'];"
+            "var pane=lm.getPane('contoursPane');"
+            "if(!pane){pane=lm.createPane('contoursPane');pane.style.zIndex=650;}"
+            "var cl=window['%s'];"
+            "if(cl){"
+            "cl.eachLayer(function(l){"
+            "if(l._path){pane.appendChild(l._path);}"
+            "if(l._layers){"
+            "Object.values(l._layers).forEach(function(sub){"
+            "if(sub._path){pane.appendChild(sub._path);}"
+            "});}"
+            "});}"
+            "}catch(e){console.warn('contours fix:',e);}"
+            "}, 500);</script>" % (map_name, contours_var)
+        ))
+
+    if rupture_file and os.path.exists(rupture_file):
         folium.GeoJson(
-            args.contours, name="Shaking contours",
-            style_function=lambda x: {"color": "black", "weight": 1,
-                                       "dashArray": "5,5", "fillOpacity": 0}
+            rupture_file, name="Fault rupture",
+            style_function=lambda x: {
+                "color": "red", "weight": 2, "fillOpacity": 0},
+            pane="contoursPane",
         ).add_to(m)
 
-    if args.rupture and os.path.exists(args.rupture):
-        folium.GeoJson(
-            args.rupture, name="Fault rupture",
-            style_function=lambda x: {"color": "red", "weight": 2, "fillOpacity": 0}
-        ).add_to(m)
-
+    epi_lat, epi_lon, magnitude, description = epicenter
     if epi_lat is not None:
         folium.Marker(
             location=[epi_lat, epi_lon],
-            tooltip=f"Epicenter M{magnitude:.1f} — {description}",
-            icon=folium.Icon(icon="star", color="red", prefix="fa")
+            icon=folium.DivIcon(
+                html='<div style="width:14px;height:14px;border-radius:50%;'
+                     'background:white;border:2.5px solid black;'
+                     'margin-left:-7px;margin-top:-7px;"></div>',
+                icon_size=(14, 14),
+                icon_anchor=(7, 7),
+            ),
+            tooltip="Epicenter M%.1f \u2014 %s" % (magnitude, description),
         ).add_to(m)
 
-    folium.LayerControl(position="bottomright", collapsed=False).add_to(m)
+    folium.LayerControl(collapsed=False, position="bottomright").add_to(m)
+    return m, removelater
 
-    # colorbar + stats box — note: reflects first model only when multi-model
-    primary = rendered[0]
-    cb_b64 = make_colorbar(primary["cmap"], primary["norm"], primary["bins"], "Probability")
-    stats_html = (f"Max P: {primary['max_p']:.3f} &nbsp;|&nbsp; "
-                  f"Area &gt;threshold: {primary['pct_above']:.1f}%")
-    colorbar_label = (primary["label"] if len(rendered) == 1
-                      else f"{primary['label']} (colorbar reflects this layer only)")
-    colorbar_html = f"""
-    <div style="position:fixed; bottom:30px; left:30px; z-index:1000;
-                background:white; padding:8px 12px; border-radius:6px;
-                box-shadow:2px 2px 6px rgba(0,0,0,0.3); min-width:280px;">
-        <div style="font-size:12px; font-weight:bold; margin-bottom:4px;">
-            {colorbar_label}</div>
-        <img src="data:image/png;base64,{cb_b64}" style="width:100%;">
-        <div style="font-size:10px; margin-top:4px; color:#444;">
-            {stats_html}</div>
-    </div>
-    """
-    m.get_root().html.add_child(folium.Element(colorbar_html))
 
-    m.save(args.outfile)
-    print(f"Saved: {args.outfile}")
-    for r in rendered:
-        print(f"[{r['label']}] max P: {r['max_p']:.4f}, "
-              f"area>{r['threshold']}: {r['pct_above']:.1f}%")
+def main():
+    p = argparse.ArgumentParser(
+        description="Two-panel interactive ground failure map (LS + LQ).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__)
+    p.add_argument("--ls-model", dest="ls_models", action="append",
+                   default=[], metavar="LABEL:TIF:CONFIG")
+    p.add_argument("--lq-model", dest="lq_models", action="append",
+                   default=[], metavar="LABEL:TIF:CONFIG")
+    p.add_argument("--shakefile", default=None)
+    p.add_argument("--rupture", default=None)
+    p.add_argument("--contours", default=None)
+    p.add_argument("--outfile", default="groundfailure_map.html")
+    args = p.parse_args()
+
+    if not args.ls_models and not args.lq_models:
+        p.error("provide at least one --ls-model or --lq-model")
+
+    def parse_specs(specs):
+        out = []
+        for spec in specs:
+            parts = spec.split(":", 2)
+            if len(parts) != 3:
+                p.error("must be LABEL:TIF:CONFIG, got: %s" % spec)
+            out.append(tuple(parts))
+        return out
+
+    ls_specs = parse_specs(args.ls_models)
+    lq_specs = parse_specs(args.lq_models)
+
+    epicenter = (None, None, None, "")
+    title = "Ground Failure"
+    if args.shakefile:
+        epicenter = get_epicenter(args.shakefile)
+        title = get_title(args.shakefile)
+
+    def load_models(specs, haz):
+        models = []
+        for label, tif_path, cfg_path in specs:
+            tif_path = os.path.expanduser(tif_path)
+            cfg_path = os.path.expanduser(cfg_path) if cfg_path else ""
+            bins, cfg_thresh, cfg_cmap = (None, None, None)
+            if cfg_path and os.path.exists(cfg_path):
+                bins, cfg_thresh, cfg_cmap = read_config(cfg_path)
+            threshold = cfg_thresh or 0.002
+            cmap_name = cfg_cmap or "CMRmap_r"
+            print("Loading [%s] %s" % (haz, label))
+            rgba, bounds, norm, cmap = tif_to_rgba(
+                tif_path, cmap_name, bins, threshold)
+            max_p, pct = panel_stats(tif_path, threshold)
+            models.append(dict(
+                label=label, rgba=rgba, bounds=bounds,
+                norm=norm, cmap=cmap, cmap_name=cmap_name,
+                bins=bins, threshold=threshold,
+                max_p=max_p, pct_above=pct))
+        return models
+
+    ls_models = load_models(ls_specs, "LS")
+    lq_models = load_models(lq_specs, "LQ")
+
+    tmpdir = tempfile.mkdtemp()
+
+    def render_map(models, tmp_name):
+        if not models:
+            return ""
+        folium_map, removelater = build_map(
+            models, epicenter, args.contours, args.rupture)
+        fpath = os.path.join(tmpdir, tmp_name)
+        folium_map.save(fpath)
+        if removelater:
+            removeVis(fpath, removelater, folium_map.get_name())
+        with open(fpath, "r", encoding="utf-8") as f:
+            return f.read()
+
+    ls_html = render_map(ls_models, "ls.html")
+    lq_html = render_map(lq_models, "lq.html")
+
+    def to_uri(html_str):
+        b64 = base64.b64encode(html_str.encode("utf-8")).decode("ascii")
+        return "data:text/html;charset=utf-8;base64," + b64
+
+    panels = []
+    if ls_html:
+        panels.append(("Landslides", ls_html))
+    if lq_html:
+        panels.append(("Liquefaction", lq_html))
+
+    panel_divs = ""
+    for ptitle, html in panels:
+        panel_divs += (
+            '<div class="panel">'
+            '<div class="panel-title">%s</div>'
+            '<iframe src="%s" class="map-frame"></iframe>'
+            '</div>' % (ptitle, to_uri(html)))
+
+    stats_rows = ""
+    for r in ls_models:
+        stats_rows += ("<tr><td>%s</td><td>Landslide</td>"
+                       "<td>%.3f</td><td>%.1f%%</td></tr>"
+                       % (r["label"], r["max_p"], r["pct_above"]))
+    for r in lq_models:
+        stats_rows += ("<tr><td>%s</td><td>Liquefaction</td>"
+                       "<td>%.3f</td><td>%.1f%%</td></tr>"
+                       % (r["label"], r["max_p"], r["pct_above"]))
+
+    combined = (
+        "<!DOCTYPE html><html><head>"
+        "<meta charset='utf-8'><title>%s</title>"
+        "<style>"
+        "*{box-sizing:border-box;margin:0;padding:0}"
+        "body{font-family:Arial,sans-serif;background:#1a1a2e;color:#eee}"
+        ".header{padding:10px 20px;background:#16213e;"
+        "font-size:16px;font-weight:bold;border-bottom:2px solid #0f3460}"
+        ".maps{display:flex;height:calc(100vh - 130px)}"
+        ".panel{flex:1;display:flex;flex-direction:column;"
+        "border-right:2px solid #0f3460}"
+        ".panel:last-child{border-right:none}"
+        ".panel-title{text-align:center;padding:5px;background:#0f3460;"
+        "font-size:13px;font-weight:bold;letter-spacing:0.5px}"
+        ".map-frame{flex:1;border:none;width:100%%}"
+        ".stats{padding:8px 20px;background:#16213e;"
+        "border-top:2px solid #0f3460;font-size:12px}"
+        ".stats table{border-collapse:collapse;width:100%%}"
+        ".stats th,.stats td{padding:3px 10px;border:1px solid #0f3460;text-align:left}"
+        ".stats th{background:#0f3460}"
+        "</style></head><body>"
+        "<div class='header'>Ground Failure \u2014 %s</div>"
+        "<div class='maps'>%s</div>"
+        "<div class='stats'><table>"
+        "<tr><th>Model</th><th>Hazard type</th>"
+        "<th>Max probability</th><th>Area above threshold</th></tr>"
+        "%s</table></div>"
+        "</body></html>"
+    ) % (title, title, panel_divs, stats_rows)
+
+    with open(args.outfile, "w", encoding="utf-8") as f:
+        f.write(combined)
+
+    print("Saved: %s" % args.outfile)
+    for r in ls_models:
+        print("[LS] %s: max P=%.4f, area>%.3f: %.1f%%"
+              % (r["label"], r["max_p"], r["threshold"], r["pct_above"]))
+    for r in lq_models:
+        print("[LQ] %s: max P=%.4f, area>%.3f: %.1f%%"
+              % (r["label"], r["max_p"], r["threshold"], r["pct_above"]))
 
 
 if __name__ == "__main__":
