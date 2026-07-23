@@ -32,12 +32,7 @@ gfailbin ~/groundfailure/defaultconfigfiles/models/zhu_2017_general_slim.ini \
   ~/shakemap_profiles/default/data/us6000jlqa/current/products/grid.xml --gis
 
 # Interactive two-panel map
-python ~/plot_gf_interactive.py \
-  --ls-model "Jessee 2018:$HOME/gf_output/us6000jlqa/us6000jlqa_jessee_2018_slim_model.tif:$HOME/groundfailure/defaultconfigfiles/models/jessee_2018_slim.ini" \
-  --lq-model "Zhu 2017:$HOME/gf_output/us6000jlqa/us6000jlqa_zhu_2017_general_slim_model.tif:$HOME/groundfailure/defaultconfigfiles/models/zhu_2017_general_slim.ini" \
-  --shakefile $HOME/shakemap_profiles/default/data/us6000jlqa/current/products/grid.xml \
-  --contours $HOME/shakemap_profiles/default/data/us6000jlqa/current/products/cont_mmi.json \
-  --outfile ~/turkey_gf.html
+python ~/plot_gf_interactive.py
 ```
 
 Download `turkey_gf.html` from the Explorer (right-click → Download) and open in a browser.
