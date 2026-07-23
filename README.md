@@ -1,8 +1,8 @@
-# ShakeMap + Ground Failure — Workshop
+# ShakeMap and Ground Failure — Workshop
 
 ## Launch
 
-Go to this repo on GitHub → **Code** → **Codespaces** → **New codespace**. Wait ~60 seconds. The terminal opens in the ShakeMap environment — no activation needed.
+Go to this repo on GitHub → **Code** → **Codespaces** → **New codespace**. Wait ~60 seconds. The terminal opens in the ShakeMap environment.
 
 ## Run ShakeMap
 
