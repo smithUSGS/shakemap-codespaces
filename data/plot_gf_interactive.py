@@ -284,6 +284,26 @@ def main():
     p.add_argument("--outfile", default="groundfailure_map.html")
     args = p.parse_args()
 
+    EVENT = "us6000jlqa"
+    GF_OUT = os.path.expanduser("~/gf_output/%s" % EVENT)
+    CFG = os.path.expanduser("~/groundfailure/defaultconfigfiles/models")
+    SHAKE = os.path.expanduser(
+        "~/shakemap_profiles/default/data/%s/current/products" % EVENT)
+
+    if not args.ls_models and not args.lq_models:
+        args.ls_models = [
+            "Jessee 2018:%s/%s_jessee_2018_slim_model.tif:%s/jessee_2018_slim.ini"
+            % (GF_OUT, EVENT, CFG)]
+        args.lq_models = [
+            "Zhu 2017:%s/%s_zhu_2017_general_slim_model.tif:%s/zhu_2017_general_slim.ini"
+            % (GF_OUT, EVENT, CFG)]
+    if not args.shakefile:
+        args.shakefile = "%s/grid.xml" % SHAKE
+    if not args.contours:
+        args.contours = "%s/cont_mmi.json" % SHAKE
+    if not args.outfile or args.outfile == "groundfailure_map.html":
+        args.outfile = os.path.expanduser("~/%s_gf.html" % EVENT)
+
     if not args.ls_models and not args.lq_models:
         p.error("provide at least one --ls-model or --lq-model")
 
