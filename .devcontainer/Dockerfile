@@ -40,6 +40,5 @@ RUN printf "data_path = /home/vscode/turkey_inputs\nconfig_filepath = /home/vsco
 # bake in the groundfailure plotting script
 COPY data/plot_gf.py /home/vscode/plot_gf.py
 COPY data/plot_gf_interactive.py /home/vscode/plot_gf_interactive.py
-RUN chmod +x /home/vscode/plot_gf.py /home/vscode/plot_gf_interactive.py
 
 RUN conda run -n shakemap bash -c "shake -v 2>&1 | grep -q '4.4.9' && test -f /home/vscode/shakemap_data/vs30/global_vs30.grd && test -d /home/vscode/shakemap_profiles/default/data/ci3144585 && test -d /home/vscode/shakemap_profiles/default/data/us6000jlqa && test -f /home/vscode/shakemap_profiles/default/data/ci3144585/current/products/grid.xml && test -f /home/vscode/shakemap_profiles/default/data/us6000jlqa/current/products/grid.xml && test -f /home/vscode/turkey_inputs/Nowicki2014_X.tif && test -f /home/vscode/turkey_inputs/Jessee2018_X.tif && test -f /home/vscode/turkey_inputs/global_grad.tif && test -f /home/vscode/plot_gf.py && test -f /home/vscode/plot_gf_interactive.py && test -f /home/vscode/.gfail_defaults && echo 'SMOKE TEST PASSED'"
