@@ -1,5 +1,5 @@
 # ============================================================================
-# ShakeMap workshop image - v4.4.9 baked in (env + grids), built ONCE.
+# ShakeMap and GF workshop image
 # ============================================================================
 
 FROM mcr.microsoft.com/devcontainers/base:ubuntu-22.04
@@ -11,12 +11,12 @@ ENV PATH=$CONDA_DIR/bin:$PATH
 
 USER vscode
 WORKDIR /home/vscode
-ARG SHAKEMAP_VERSION=v4.4.9
 
-RUN curl -fsSL "https://code.usgs.gov/ghsc/esi/shakemap/-/raw/${SHAKEMAP_VERSION}/scripts/install_shakemap.sh" -o /home/vscode/install_shakemap.sh && chmod +x /home/vscode/install_shakemap.sh
-RUN bash /home/vscode/install_shakemap.sh -v ${SHAKEMAP_VERSION} -k /home/vscode/shakemap-src && conda clean -afy
-RUN conda run -n shakemap sm_profile -c default -a
-
+RUN git clone --depth 1 https://code.usgs.gov/ghsc/esi/shakemap.git /home/vscode/shakemap
+RUN conda env create -n shakemap -f /home/vscode/shakemap/linux_environment.yml
+RUN mkdir -p ~/.config/matplotlib && echo "backend : Agg" > ~/.config/matplotlib/matplotlibrc
+RUN /opt/conda/envs/shakemap/bin/pip install "setuptools<82" && /opt/conda/envs/shakemap/bin/pip install -e /home/vscode/shakemap
+    
 # Running the full pipeline (including gridxml) for BOTH demo events pulls in:
 RUN conda run -n shakemap bash -c "sm_create ci3144585 && shake ci3144585 assemble -c 'prebuild' model contour mapping gridxml"
 RUN conda run -n shakemap bash -c "sm_create us6000jlqa && shake us6000jlqa assemble -c 'prebuild' model contour mapping gridxml"
