@@ -13,6 +13,7 @@ Here's how to get started with the workshop environment:
 A few things to know:
 - Use your own personal GitHub account (the environment runs on your free quota at no cost to you)
 - Launch directly from this repository — don’t fork it, as that won’t have the pre-built image
+- If you are on a VPN or institutional network and the codespace is slow to connect, try disconnecting from VPN.
 - When you’re done, stop the codespace via GitHub → Codespaces → ••• → Stop
   
 ## Run ShakeMap
