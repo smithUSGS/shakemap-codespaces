@@ -1,14 +1,10 @@
 {
-  "name": "ShakeMap Workshop (v4.4.9)",
-
+  "name": "ShakeMap Workshop",
   "build": {
     "dockerfile": "Dockerfile",
-    "context": "..",
-    "args": { "SHAKEMAP_VERSION": "v4.4.9" }
+    "context": ".."
   },
-
   "hostRequirements": { "cpus": 2 },
-
   "customizations": {
     "vscode": {
       "extensions": [
@@ -24,11 +20,8 @@
       }
     }
   },
-
   "workspaceMountConsistency": "cached",
-
   "remoteUser": "vscode",
-
   "postCreateCommand": "bash -lc 'conda activate shakemap && shake -v 2>&1 | head -1'",
   "postAttachCommand": "bash -lc 'echo \"Workshop environment ready. See README.md to get started.\"'"
 }
