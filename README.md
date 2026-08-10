@@ -3,7 +3,7 @@
 ## Getting started
 
 1. Create a free GitHub account at https://github.com if you don't already have one
-2. Go to this repo: https://github.com/smithUSGS/shakemap-codespaces
+2. Go to this repo: [https://github.com/smithUSGS/shakemap-gf-workshop](https://github.com/smithUSGS/shakemap-gf-workshop)
 3. Click the green **Code** button → **Codespaces** tab → **New with options**
 4. Under **Region**, select **Europe West**, then click **Create codespace**
 5. Wait about 60 seconds — a terminal will open automatically in the ShakeMap environment
