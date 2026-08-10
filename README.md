@@ -31,10 +31,10 @@ Select the **Python (ShakeMap)** kernel when prompted.
 
 ```bash
 # Northridge M6.7 (California)
-shake ci3144585 assemble -c "demo" model contour mapping
+shake ci3144585 assemble -c "demo" model contour mapping gridxml
 
 # Turkey M7.5
-shake us6000jlqa assemble -c "demo" model contour mapping
+shake us6000jlqa assemble -c "demo" model contour mapping gridxml
 ```
 
 View a map:
