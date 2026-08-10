@@ -379,6 +379,11 @@ def main():
         args.slope_dir = candidate if os.path.isdir(candidate) else args.datadir
         print("Using slope-dir: %s" % args.slope_dir)
 
+    if not os.path.exists(args.shakefile):
+        print("\nERROR: %s not found." % args.shakefile)
+        print("Run 'shake <eventid> assemble model gridxml' first.")
+        raise SystemExit(1)
+
     print("Parsing ShakeMap grid...")
     shake = parse_shakemap_grid(args.shakefile)
     lons, lats = shake["lons"], shake["lats"]
