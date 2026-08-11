@@ -1,7 +1,16 @@
 {
   "folders": [
-    { "name": "Workshop Files", "path": "/home/vscode" },
-    { "name": "Repo", "path": "/workspaces/shakemap-codespaces" }
+    {
+      "name": "Workshop Files",
+      "path": "/home/vscode"
+    },
+    {
+      "name": "Repo",
+      "path": "/workspaces/shakemap-codespaces"
+    },
+    {
+      "path": "../../home"
+    }
   ],
   "settings": {}
 }
