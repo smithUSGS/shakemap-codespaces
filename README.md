@@ -25,21 +25,6 @@ Select the **Python (ShakeMap)** kernel when prompted.
 
 ---
 
-## Key paths
-
-| | Path |
-|---|---|
-| ShakeMap outputs | `~/shakemap_profiles/default/data/<eventid>/current/products/` |
-| Ground failure outputs | `~/gf_output/` |
-| Turkey GF inputs | `~/turkey_inputs/` |
-
-## Switch environments
-
-```bash
-conda activate shakemap   # ShakeMap (default on launch)
-conda activate gf         # groundfailure tools
-```
-
 ## Stop the codespace
 
 GitHub → Codespaces → **•••** → **Stop codespace** when done.
