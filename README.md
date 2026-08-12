@@ -21,7 +21,7 @@ Select the **Python (ShakeMap)** kernel when prompted.
 |---|---|
 | `01_san_andreas_scenario.ipynb` | Morning demo — M7.6 San Andreas scenario |
 | `02_malatya_scenario.ipynb` | Afternoon hands-on — Malatya Fault M7.2 scenario |
-| `03_turkey_syria_2023.ipynb` | Afternoon — 2023 Kahramanmaraş reality check |
+| `03_turkey_syria_2023.ipynb` | Afternoon — 2023 Kahramanmaraş hands-on |
 
 ---
 
