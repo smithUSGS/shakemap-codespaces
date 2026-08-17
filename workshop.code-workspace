@@ -1,16 +1,7 @@
 {
   "folders": [
-    {
-      "name": "Workshop Files",
-      "path": "/home/vscode"
-    },
-    {
-      "name": "Repo",
-      "path": "/workspaces/shakemap-gf-workshop"
-    },
-    {
-      "path": "../../home"
-    }
+    { "name": "Workshop Files", "path": "/home/vscode" },
+    { "name": "Repo", "path": "/workspaces/shakemap-gf-workshop" }
   ],
   "settings": {}
 }
