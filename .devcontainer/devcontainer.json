@@ -22,7 +22,7 @@
   },
   "workspaceMountConsistency": "cached",
   "remoteUser": "vscode",
-  "workspaceFile": "/workspaces/shakemap-codespaces/workshop.code-workspace",
+  "workspaceFile": "/workspaces/shakemap-gf-workshop/workshop.code-workspace",
   "postCreateCommand": "bash -lc 'conda activate shakemap && shake -v 2>&1 | head -1'",
-  "postAttachCommand": "bash -lc 'echo \"Workshop environment ready. See README.md to get started.\"'"
+  "postAttachCommand": "bash -lc 'echo \"Workshop environment ready.\"'"
 }
