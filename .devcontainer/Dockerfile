@@ -39,7 +39,10 @@ RUN mkdir -p /home/vscode/shakemap_data/vs30 /home/vscode/shakemap_data/topo && 
 # Update model.conf to point to downloaded grids
 RUN sed -i \
     's|vs30file = .*|vs30file = /home/vscode/shakemap_data/vs30/global_vs30.grd|' \
-    /home/vscode/shakemap_profiles/default/install/config/model.conf
+    /home/vscode/shakemap_profiles/default/install/config/model.conf && \
+    sed -i \
+    's|.*topography = .*|      topography = /home/vscode/shakemap_data/topo/topo_30sec.grd|' \
+    /home/vscode/shakemap_profiles/default/install/config/products.conf
 
 RUN conda run -n shakemap bash -c "sm_create ci3144585 && shake ci3144585 assemble -c 'prebuild' model contour mapping gridxml"
 RUN conda run -n shakemap bash -c "sm_create us6000jlqa && shake us6000jlqa assemble -c 'prebuild' model contour mapping gridxml"
