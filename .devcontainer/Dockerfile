@@ -25,12 +25,11 @@ RUN /opt/conda/envs/shakemap/bin/pip install -q ipykernel && \
     --user --name shakemap --display-name "Python (ShakeMap)"
 
 # Profile, grids, and pre-warm demo events
-RUN conda run -n shakemap bash -c "\
-    sm_profile -c default -a > /dev/null 2>&1 && \
-    sm_create ci3144585 > /dev/null 2>&1 && \
-    shake ci3144585 assemble -c 'prebuild' model contour mapping gridxml > /dev/null 2>&1 && \
-    sm_create us6000jlqa > /dev/null 2>&1 && \
-    shake us6000jlqa assemble -c 'prebuild' model contour mapping gridxml > /dev/null 2>&1"
+RUN conda run -n shakemap bash -c "sm_profile -c default -a"
+RUN conda run -n shakemap bash -c "sm_create ci3144585 && shake ci3144585 assemble -c 'prebuild' model contour mapping gridxml"
+RUN conda run -n shakemap bash -c "sm_create us6000jlqa && shake us6000jlqa assemble -c 'prebuild' model contour mapping gridxml"
+
+RUN conda run -n shakemap bash -c "sm_profile -c default -a"
 
 # Auto-activate shakemap in every terminal
 RUN conda init bash -q && echo "conda activate shakemap" >> /home/vscode/.bashrc
