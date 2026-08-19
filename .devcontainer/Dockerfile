@@ -20,23 +20,22 @@ RUN conda env create -q -n shakemap \
     -f /home/vscode/shakemap/linux_environment.yml
 RUN /opt/conda/envs/shakemap/bin/pip install -q "setuptools<82" && \
     /opt/conda/envs/shakemap/bin/pip install -q -e /home/vscode/shakemap
+RUN /opt/conda/envs/shakemap/bin/pip install -q "matplotlib<3.11"
 RUN /opt/conda/envs/shakemap/bin/pip install -q ipykernel && \
     /opt/conda/envs/shakemap/bin/python -m ipykernel install \
     --user --name shakemap --display-name "Python (ShakeMap)"
 
-# Profile, grids, and pre-warm demo events
-
-# Create profile without downloading grids
+# Create ShakeMap profile
 RUN conda run -n shakemap bash -c "sm_profile -c default -a -n"
 
-# Download grids from GitHub release
+# Download topo and Vs30 grids from GitHub release
 RUN mkdir -p /home/vscode/shakemap_data/vs30 /home/vscode/shakemap_data/topo && \
     curl -L https://github.com/smithUSGS/shakemap-gf-workshop/releases/download/v1.0-data/global_vs30.grd \
          -o /home/vscode/shakemap_data/vs30/global_vs30.grd && \
     curl -L https://github.com/smithUSGS/shakemap-gf-workshop/releases/download/v1.0-data/topo_30sec.grd \
          -o /home/vscode/shakemap_data/topo/topo_30sec.grd
 
-# Update model.conf to point to downloaded grids
+# Update config files to point to downloaded grids
 RUN sed -i \
     's|vs30file = .*|vs30file = /home/vscode/shakemap_data/vs30/global_vs30.grd|' \
     /home/vscode/shakemap_profiles/default/install/config/model.conf && \
@@ -44,13 +43,13 @@ RUN sed -i \
     's|.*topography = .*|      topography = /home/vscode/shakemap_data/topo/topo_30sec.grd|' \
     /home/vscode/shakemap_profiles/default/install/config/products.conf
 
-RUN conda run -n shakemap bash -c "sm_create ci3144585 && shake ci3144585 assemble -c 'prebuild' model contour mapping gridxml"
-RUN conda run -n shakemap bash -c "sm_create us6000jlqa && shake us6000jlqa assemble -c 'prebuild' model contour mapping gridxml"
-         
+# AFAD regional Vs30 for Turkey
+COPY data/vs30/afad_turkey_vs30.tif /home/vscode/shakemap_data/vs30/afad_turkey_vs30.tif
+
 # Auto-activate shakemap in every terminal
 RUN conda init bash -q && echo "conda activate shakemap" >> /home/vscode/.bashrc
 
-# groundfailure (main branch, python 3.10)
+# grondfailure
 RUN git clone -q --depth 1 \
     https://code.usgs.gov/ghsc/esi/groundfailure/groundfailure.git /home/vscode/groundfailure
 RUN conda env create -q -n gf \
@@ -66,6 +65,15 @@ COPY data/turkey_inputs /home/vscode/turkey_inputs
 RUN printf "data_path = /home/vscode/turkey_inputs\nconfig_filepath = /home/vscode/groundfailure/defaultconfigfiles\noutput_filepath = /home/vscode/gf_output\n" \
     > /home/vscode/.gfail_defaults
 
-# Plotting scripts
+# gfail lifelines
+RUN git clone -q --depth 1 \
+    https://code.usgs.gov/ghsc/esi/gfail_lifelines.git /home/vscode/gfail_lifelines
+RUN conda create -q -y -n gfroads -c conda-forge python=3.11
+RUN /opt/conda/envs/gfroads/bin/pip install -q -e /home/vscode/gfail_lifelines
+RUN /opt/conda/envs/gfroads/bin/pip install -q ipykernel && \
+    /opt/conda/envs/gfroads/bin/python -m ipykernel install \
+    --user --name gfroads --display-name "Python (GF Roads)"
+
+# plotting scripts
 COPY data/plot_gf.py /home/vscode/plot_gf.py
 COPY data/plot_gf_interactive.py /home/vscode/plot_gf_interactive.py
