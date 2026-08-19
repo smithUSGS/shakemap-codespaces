@@ -13,31 +13,33 @@ ENV PATH=$CONDA_DIR/bin:$PATH
 USER vscode
 WORKDIR /home/vscode
 
-# ShakeMap (main branch)
-RUN git clone -q --depth 1 https://code.usgs.gov/ghsc/esi/shakemap.git /home/vscode/shakemap
-
-RUN bash -lc "source /opt/conda/etc/profile.d/conda.sh && \
-    bash /home/vscode/shakemap/scripts/install_shakemap_dev.sh -n shakemap \
-    > /tmp/shakemap_install.log 2>&1 || (cat /tmp/shakemap_install.log && exit 1)"
-
+# ShakeMap v4.4.9
+RUN git clone -q --depth 1 -b v4.4.9 \
+    https://code.usgs.gov/ghsc/esi/shakemap.git /home/vscode/shakemap
+RUN conda env create -q -n shakemap \
+    -f /home/vscode/shakemap/linux_environment.yml
+RUN /opt/conda/envs/shakemap/bin/pip install -q "setuptools<82" && \
+    /opt/conda/envs/shakemap/bin/pip install -q -e /home/vscode/shakemap
 RUN /opt/conda/envs/shakemap/bin/pip install -q ipykernel && \
     /opt/conda/envs/shakemap/bin/python -m ipykernel install \
     --user --name shakemap --display-name "Python (ShakeMap)"
 
 # Profile, grids, and pre-warm demo events
 RUN conda run -n shakemap bash -c "\
-    sm_profile -c default -a && \
-    sm_create ci3144585 && \
-    shake ci3144585 assemble -c 'prebuild' model contour mapping gridxml && \
-    sm_create us6000jlqa && \
-    shake us6000jlqa assemble -c 'prebuild' model contour mapping gridxml"
+    sm_profile -c default -a > /dev/null 2>&1 && \
+    sm_create ci3144585 > /dev/null 2>&1 && \
+    shake ci3144585 assemble -c 'prebuild' model contour mapping gridxml > /dev/null 2>&1 && \
+    sm_create us6000jlqa > /dev/null 2>&1 && \
+    shake us6000jlqa assemble -c 'prebuild' model contour mapping gridxml > /dev/null 2>&1"
 
 # Auto-activate shakemap in every terminal
 RUN conda init bash -q && echo "conda activate shakemap" >> /home/vscode/.bashrc
 
 # groundfailure (main branch, python 3.10)
-RUN git clone -q --depth 1 https://code.usgs.gov/ghsc/esi/groundfailure/groundfailure.git /home/vscode/groundfailure
-RUN conda env create -q -n gf -f /home/vscode/groundfailure/install/environment_3.10.yml
+RUN git clone -q --depth 1 \
+    https://code.usgs.gov/ghsc/esi/groundfailure/groundfailure.git /home/vscode/groundfailure
+RUN conda env create -q -n gf \
+    -f /home/vscode/groundfailure/install/environment_3.10.yml
 RUN /opt/conda/envs/gf/bin/python -m pip install -q -e /home/vscode/groundfailure && \
     conda clean -afy -q
 RUN /opt/conda/envs/gf/bin/pip install -q ipykernel && \
