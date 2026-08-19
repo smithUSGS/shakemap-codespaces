@@ -44,7 +44,7 @@ RUN sed -i \
     /home/vscode/shakemap_profiles/default/install/config/products.conf
 
 # AFAD regional Vs30 for Turkey
-COPY data/vs30/afad_turkey_vs30.tif /home/vscode/shakemap_data/vs30/afad_turkey_vs30.tif
+COPY data/vs30/vs30_turkey_300m.tif /home/vscode/shakemap_data/vs30/afad_turkey_vs30.tif
 
 # Auto-activate shakemap in every terminal
 RUN conda init bash -q && echo "conda activate shakemap" >> /home/vscode/.bashrc
