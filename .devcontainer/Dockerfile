@@ -25,12 +25,16 @@ RUN /opt/conda/envs/shakemap/bin/pip install -q ipykernel && \
     --user --name shakemap --display-name "Python (ShakeMap)"
 
 # Profile, grids, and pre-warm demo events
-RUN conda run -n shakemap bash -c "sm_profile -c default -a"
+RUN conda run -n shakemap bash -c "sm_profile -c default -a -n"
+# Download topo and Vs30 grids from GitHub release
+RUN mkdir -p /home/vscode/shakemap_data/vs30 /home/vscode/shakemap_data/topo && \
+    curl -L https://github.com/smithUSGS/shakemap-gf-workshop/releases/download/v1.0-data/global_vs30.grd \
+         -o /home/vscode/shakemap_data/vs30/global_vs30.grd && \
+    curl -L https://github.com/smithUSGS/shakemap-gf-workshop/releases/download/v1.0-data/topo_30sec.grd \
+         -o /home/vscode/shakemap_data/topo/topo_30sec.grd
 RUN conda run -n shakemap bash -c "sm_create ci3144585 && shake ci3144585 assemble -c 'prebuild' model contour mapping gridxml"
 RUN conda run -n shakemap bash -c "sm_create us6000jlqa && shake us6000jlqa assemble -c 'prebuild' model contour mapping gridxml"
-
-RUN conda run -n shakemap bash -c "sm_profile -c default -a"
-
+         
 # Auto-activate shakemap in every terminal
 RUN conda init bash -q && echo "conda activate shakemap" >> /home/vscode/.bashrc
 
