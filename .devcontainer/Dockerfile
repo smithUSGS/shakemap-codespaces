@@ -46,7 +46,7 @@ RUN /opt/conda/envs/gf/bin/pip install -q ipykernel && \
     /opt/conda/envs/gf/bin/python -m ipykernel install \
     --user --name gf --display-name "Python (Ground Failure)"
 
-# Turkey groundfailure input layers + defaults
+# Turkey groundfailure input layers
 COPY data/turkey_inputs /home/vscode/turkey_inputs
 RUN printf "data_path = /home/vscode/turkey_inputs\nconfig_filepath = /home/vscode/groundfailure/defaultconfigfiles\noutput_filepath = /home/vscode/gf_output\n" \
     > /home/vscode/.gfail_defaults
