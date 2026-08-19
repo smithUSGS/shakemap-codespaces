@@ -68,7 +68,8 @@ RUN printf "data_path = /home/vscode/turkey_inputs\nconfig_filepath = /home/vsco
 # gfail lifelines
 RUN git clone -q --depth 1 \
     https://code.usgs.gov/ghsc/esi/gfail_lifelines.git /home/vscode/gfail_lifelines
-RUN conda create -q -y -n gfroads -c conda-forge python=3.11
+RUN conda create -q -y -n gfroads -c conda-forge python=3.11 gdal && \
+    /opt/conda/envs/gfroads/bin/pip install -e /home/vscode/gfail_lifelines
 RUN /opt/conda/envs/gfroads/bin/pip install -q -e /home/vscode/gfail_lifelines
 RUN /opt/conda/envs/gfroads/bin/pip install -q ipykernel && \
     /opt/conda/envs/gfroads/bin/python -m ipykernel install \
