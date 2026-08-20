@@ -16,7 +16,8 @@
         "terminal.integrated.fontSize": 14,
         "workbench.startupEditor": "none",
         "explorer.confirmDelete": false,
-        "files.simpleDialog.enable": true
+        "files.simpleDialog.enable": true,
+        "notebook.autoSave": "off"
       }
     }
   },
