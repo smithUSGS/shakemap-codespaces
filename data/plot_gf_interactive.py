@@ -38,6 +38,7 @@ Example (multi-model, Turkey):
 """
 
 import argparse
+import json
 import io
 import base64
 import os
@@ -170,7 +171,22 @@ def main():
     parser.add_argument("--rupture", default=None)
     parser.add_argument("--contours", default=None)
     parser.add_argument("--threshold", type=float, default=None)
+    parser.add_argument("--infojson", default=None,
+                        help="Path to gfailbin info.json for alert levels")
     args = parser.parse_args()
+
+    # Load alert info from gfailbin info.json if provided
+    alert_info = {}
+    if args.infojson and os.path.exists(args.infojson):
+        with open(args.infojson) as f:
+            info = json.load(f)
+        for model in info.get('Landslides', []) + info.get('Liquefaction', []):
+            key = model['id']
+            alert_info[key] = {
+                'alert': model.get('alert', ''),
+                'hazard_alert': model.get('hazard_alert', {}),
+                'population_alert': model.get('population_alert', {}),
+            }
 
     if args.model:
         model_specs = []
@@ -229,11 +245,8 @@ def main():
 
     folium.TileLayer("CartoDB positron", name="Light basemap").add_to(m)
     folium.TileLayer(
-        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attr="Esri", name="Satellite").add_to(m)
-    folium.TileLayer(
-        tiles="https://tiles.stadiamaps.com/tiles/stamen_terrain/{z}/{x}/{y}.jpg",
-        attr="Stadia / Stamen", name="Terrain").add_to(m)
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
+        attr="Esri", name="Topo").add_to(m)
 
     for r in rendered:
         w, s, e, n = r["bounds"]
@@ -268,8 +281,19 @@ def main():
     # colorbar + stats box — note: reflects first model only when multi-model
     primary = rendered[0]
     cb_b64 = make_colorbar(primary["cmap"], primary["norm"], primary["bins"], "Probability")
+    # build stats line, add alert info if available
+    _ak = next((k for k in alert_info if k.replace('_','') in primary['label'].lower().replace('_','')), None)
+    _ai = alert_info.get(_ak, {})
+    _ha = _ai.get("hazard_alert", {})
+    _pa = _ai.get("population_alert", {})
+    _alert_str = ""
+    if _ai:
+        _col = {"green":"#2ecc40","yellow":"#ffdc00",
+                "orange":"#ff851b","red":"#ff4136"}.get(_ai.get("alert",""),"#aaa")
+        _alert_str = (f" &nbsp;|&nbsp; <span style='color:{_col};font-weight:bold'>{_ai.get('alert','').upper()}</span>"
+                      f" &nbsp;|&nbsp; Pop: {_pa.get('value',0):,.0f}")
     stats_html = (f"Max P: {primary['max_p']:.3f} &nbsp;|&nbsp; "
-                  f"Area &gt;threshold: {primary['pct_above']:.1f}%")
+                  f"Area &gt;threshold: {primary['pct_above']:.1f}%{_alert_str}")
     colorbar_label = (primary["label"] if len(rendered) == 1
                       else f"{primary['label']} (colorbar reflects this layer only)")
     colorbar_html = f"""
@@ -285,7 +309,101 @@ def main():
     """
     m.get_root().html.add_child(folium.Element(colorbar_html))
 
-    m.save(args.outfile)
+    if len(rendered) == 2:
+        # Side-by-side layout: two separate maps in one HTML page
+        maps = []
+        for r in rendered:
+            mi = folium.Map(
+                location=[center_lat, center_lon],
+                zoom_start=7,
+                tiles="OpenStreetMap",
+                control_scale=True,
+            )
+            folium.LatLngPopup().add_to(mi)
+            folium.TileLayer("CartoDB positron", name="Light basemap").add_to(mi)
+            folium.TileLayer(
+                tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
+                attr="Esri", name="Topo").add_to(mi)
+            w, s, e, n = r["bounds"]
+            folium.raster_layers.ImageOverlay(
+                image=f"data:image/png;base64,{r['img_b64']}",
+                bounds=[[s, w], [n, e]],
+                opacity=1.0, name=r["label"], interactive=False, zindex=1,
+            ).add_to(mi)
+            if args.contours and os.path.exists(args.contours):
+                folium.GeoJson(
+                    args.contours, name="Shaking contours",
+                    style_function=lambda x: {"color": "black", "weight": 1,
+                                               "dashArray": "5,5", "fillOpacity": 0}
+                ).add_to(mi)
+            if epi_lat is not None:
+                folium.Marker(
+                    location=[epi_lat, epi_lon],
+                    tooltip=f"Epicenter M{magnitude:.1f} — {description}",
+                    icon=folium.Icon(icon="star", color="red", prefix="fa")
+                ).add_to(mi)
+            folium.LayerControl(position="bottomright", collapsed=False).add_to(mi)
+            cb_b64 = make_colorbar(r["cmap"], r["norm"], r["bins"], "Probability")
+            _ak = next((k for k in alert_info if k.replace('_','') in r['label'].lower().replace('_','') or r['label'].lower().replace('_','') in k.replace('_','')), None)
+            _ai = alert_info.get(_ak, {})
+            _pa = _ai.get("population_alert", {})
+            _alert_str = ""
+            if _ai:
+                _col = {"green":"#2ecc40","yellow":"#ffdc00",
+                        "orange":"#ff851b","red":"#ff4136"}.get(_ai.get("alert",""),"#aaa")
+                _alert_str = (f" &nbsp;|&nbsp; <span style='color:{_col};font-weight:bold'>{_ai.get('alert','').upper()}</span>"
+                              f" &nbsp;|&nbsp; Pop: {_pa.get('value',0):,.0f}")
+            stats_html = (f"Max P: {r['max_p']:.3f} &nbsp;|&nbsp; "
+                          f"Area &gt;threshold: {r['pct_above']:.1f}%{_alert_str}")
+            cb_html = f"""
+            <div style="position:fixed; bottom:30px; left:30px; z-index:1000;
+                        background:white; padding:8px 12px; border-radius:6px;
+                        box-shadow:2px 2px 6px rgba(0,0,0,0.3); min-width:240px;">
+                <div style="font-size:12px; font-weight:bold; margin-bottom:4px;">
+                    {r['label']}</div>
+                <img src="data:image/png;base64,{cb_b64}" style="width:100%;">
+                <div style="font-size:10px; margin-top:4px; color:#444;">
+                    {stats_html}</div>
+            </div>
+            """
+            mi.get_root().html.add_child(folium.Element(cb_html))
+            maps.append(mi)
+
+        # Render each map to HTML string and combine side by side
+        html1 = maps[0].get_root().render()
+        html2 = maps[1].get_root().render()
+        combined = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body {{ margin: 0; padding: 0; }}
+  .map-title {{ text-align: center; font-family: sans-serif;
+                font-size: 14px; font-weight: bold; padding: 6px;
+                background: #f0f0f0; }}
+  .container {{ display: flex; height: 100vh; }}
+  .panel {{ flex: 1; display: flex; flex-direction: column; }}
+  .panel iframe {{ flex: 1; border: none; }}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="panel">
+    <div class="map-title">{rendered[0]['label']}</div>
+    <iframe srcdoc="{html1.replace(chr(34), '&quot;')}"></iframe>
+  </div>
+  <div class="panel">
+    <div class="map-title">{rendered[1]['label']}</div>
+    <iframe srcdoc="{html2.replace(chr(34), '&quot;')}"></iframe>
+  </div>
+</div>
+</body>
+</html>"""
+        with open(args.outfile, "w") as f:
+            f.write(combined)
+    else:
+        m.save(args.outfile)
+
     print(f"Saved: {args.outfile}")
     for r in rendered:
         print(f"[{r['label']}] max P: {r['max_p']:.4f}, "
