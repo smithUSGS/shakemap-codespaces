@@ -247,6 +247,9 @@ def main():
     folium.TileLayer(
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
         attr="Esri", name="Topo").add_to(m)
+    folium.TileLayer(
+        tiles="https://tiles.stadiamaps.com/tiles/stamen_terrain/{z}/{x}/{y}.jpg",
+        attr="Stadia / Stamen", name="Terrain").add_to(m)
 
     for r in rendered:
         w, s, e, n = r["bounds"]
@@ -259,8 +262,16 @@ def main():
     if args.contours and os.path.exists(args.contours):
         folium.GeoJson(
             args.contours, name="Shaking contours",
-            style_function=lambda x: {"color": "black", "weight": 1,
-                                       "dashArray": "5,5", "fillOpacity": 0}
+            style_function=lambda x: {
+                "color": x["properties"].get("color", "black"),
+                "weight": 2,
+                "fillOpacity": 0
+            },
+            tooltip=folium.GeoJsonTooltip(
+                fields=["value", "units"],
+                aliases=["MMI:", "Units:"],
+                localize=True
+            )
         ).add_to(m)
 
     if args.rupture and os.path.exists(args.rupture):
@@ -282,7 +293,7 @@ def main():
     primary = rendered[0]
     cb_b64 = make_colorbar(primary["cmap"], primary["norm"], primary["bins"], "Probability")
     # build stats line, add alert info if available
-    _ak = next((k for k in alert_info if k.replace('_','') in primary['label'].lower().replace('_','')), None)
+    _ak = next((k for k in alert_info if k in primary["label"].lower()), None)
     _ai = alert_info.get(_ak, {})
     _ha = _ai.get("hazard_alert", {})
     _pa = _ai.get("population_alert", {})
@@ -333,8 +344,16 @@ def main():
             if args.contours and os.path.exists(args.contours):
                 folium.GeoJson(
                     args.contours, name="Shaking contours",
-                    style_function=lambda x: {"color": "black", "weight": 1,
-                                               "dashArray": "5,5", "fillOpacity": 0}
+                    style_function=lambda x: {
+                        "color": x["properties"].get("color", "black"),
+                        "weight": 2,
+                        "fillOpacity": 0
+                    },
+                    tooltip=folium.GeoJsonTooltip(
+                        fields=["value", "units"],
+                        aliases=["MMI:", "Units:"],
+                        localize=True
+                    )
                 ).add_to(mi)
             if epi_lat is not None:
                 folium.Marker(
@@ -343,59 +362,98 @@ def main():
                     icon=folium.Icon(icon="star", color="red", prefix="fa")
                 ).add_to(mi)
             folium.LayerControl(position="bottomright", collapsed=False).add_to(mi)
+            # colorbar embedded in map
             cb_b64 = make_colorbar(r["cmap"], r["norm"], r["bins"], "Probability")
-            _ak = next((k for k in alert_info if k.replace('_','') in r['label'].lower().replace('_','') or r['label'].lower().replace('_','') in k.replace('_','')), None)
-            _ai = alert_info.get(_ak, {})
-            _pa = _ai.get("population_alert", {})
-            _alert_str = ""
-            if _ai:
-                _col = {"green":"#2ecc40","yellow":"#ffdc00",
-                        "orange":"#ff851b","red":"#ff4136"}.get(_ai.get("alert",""),"#aaa")
-                _alert_str = (f" &nbsp;|&nbsp; <span style='color:{_col};font-weight:bold'>{_ai.get('alert','').upper()}</span>"
-                              f" &nbsp;|&nbsp; Pop: {_pa.get('value',0):,.0f}")
-            stats_html = (f"Max P: {r['max_p']:.3f} &nbsp;|&nbsp; "
-                          f"Area &gt;threshold: {r['pct_above']:.1f}%{_alert_str}")
             cb_html = f"""
-            <div style="position:fixed; bottom:30px; left:30px; z-index:1000;
-                        background:white; padding:8px 12px; border-radius:6px;
-                        box-shadow:2px 2px 6px rgba(0,0,0,0.3); min-width:240px;">
-                <div style="font-size:12px; font-weight:bold; margin-bottom:4px;">
-                    {r['label']}</div>
+            <div style="position:fixed; bottom:10px; left:10px; z-index:1000;
+                        background:rgba(255,255,255,0.92); padding:6px 10px;
+                        border-radius:4px; box-shadow:1px 1px 4px rgba(0,0,0,0.2);
+                        min-width:200px;">
                 <img src="data:image/png;base64,{cb_b64}" style="width:100%;">
-                <div style="font-size:10px; margin-top:4px; color:#444;">
-                    {stats_html}</div>
             </div>
             """
             mi.get_root().html.add_child(folium.Element(cb_html))
             maps.append(mi)
 
-        # Render each map to HTML string and combine side by side
+        # Build stats table rows
+        ALERT_COL = {"green":"#27ae60","yellow":"#f39c12",
+                     "orange":"#e67e22","red":"#c0392b"}
+        table_rows = ""
+        hazard_types = ["Landslide", "Liquefaction"]
+        for i, r in enumerate(rendered):
+            _ak = next((k for k in alert_info
+                        if k.replace('_','') in r['label'].lower().replace('_','')
+                        or r['label'].lower().replace('_','') in k.replace('_','')), None)
+            _ai = alert_info.get(_ak, {})
+            _ha = _ai.get("hazard_alert", {})
+            _pa = _ai.get("population_alert", {})
+            hcol = ALERT_COL.get(_ha.get("color",""), "#888")
+            pcol = ALERT_COL.get(_pa.get("color",""), "#888")
+            ha_str = (f"<span style='color:{hcol};font-weight:bold'>"
+                      f"{_ha.get('color','—').upper()}</span> "
+                      f"({_ha.get('value',0):.0f} {_ha.get('units','')})") if _ha else "—"
+            pa_str = (f"<span style='color:{pcol};font-weight:bold'>"
+                      f"{_pa.get('color','—').upper()}</span> "
+                      f"({_pa.get('value',0):,.0f} {_pa.get('units','')})") if _pa else "—"
+            oa = _ai.get('alert','')
+            oa_col = ALERT_COL.get(oa, '#888')
+            oa_str = f"<span style='color:{oa_col};font-weight:bold'>{oa.upper()}</span>" if oa else '—'
+            table_rows += f"""
+            <tr>
+                <td>{r['label']}</td>
+                <td>{hazard_types[i] if i < len(hazard_types) else ''}</td>
+                <td>{oa_str}</td>
+                <td>{ha_str}</td>
+                <td>{pa_str}</td>
+            </tr>"""
+
+        # Render each map and combine
         html1 = maps[0].get_root().render()
         html2 = maps[1].get_root().render()
+        event_title = description if description else "Ground Failure"
         combined = f"""<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <style>
-  body {{ margin: 0; padding: 0; }}
-  .map-title {{ text-align: center; font-family: sans-serif;
-                font-size: 14px; font-weight: bold; padding: 6px;
-                background: #f0f0f0; }}
-  .container {{ display: flex; height: 100vh; }}
-  .panel {{ flex: 1; display: flex; flex-direction: column; }}
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ font-family: sans-serif; display: flex; flex-direction: column;
+          height: 100vh; background: #f5f5f5; }}
+  .header {{ background: #1B2A4A; color: white; padding: 8px 16px;
+             font-size: 15px; font-weight: bold; flex-shrink: 0; }}
+  .maps {{ display: flex; flex: 1; min-height: 0; }}
+  .panel {{ flex: 1; display: flex; flex-direction: column;
+            border-right: 2px solid #1B2A4A; }}
+  .panel:last-child {{ border-right: none; }}
+  .panel-title {{ text-align: center; padding: 5px; font-size: 13px;
+                  font-weight: bold; background: #2c3e6b; color: white; }}
   .panel iframe {{ flex: 1; border: none; }}
+  .stats {{ flex-shrink: 0; background: white; border-top: 2px solid #1B2A4A;
+            padding: 8px 16px; }}
+  .stats table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
+  .stats th {{ background: #1B2A4A; color: white; padding: 5px 10px;
+               text-align: left; }}
+  .stats td {{ padding: 5px 10px; border-bottom: 1px solid #ddd; }}
+  .stats tr:last-child td {{ border-bottom: none; }}
 </style>
 </head>
 <body>
-<div class="container">
+<div class="header">Ground Failure — {event_title}</div>
+<div class="maps">
   <div class="panel">
-    <div class="map-title">{rendered[0]['label']}</div>
+    <div class="panel-title">{rendered[0]['label']}</div>
     <iframe srcdoc="{html1.replace(chr(34), '&quot;')}"></iframe>
   </div>
   <div class="panel">
-    <div class="map-title">{rendered[1]['label']}</div>
+    <div class="panel-title">{rendered[1]['label']}</div>
     <iframe srcdoc="{html2.replace(chr(34), '&quot;')}"></iframe>
   </div>
+</div>
+<div class="stats">
+  <table>
+    <tr><th>Model</th><th>Hazard type</th><th>Overall alert</th><th>Hazard alert</th><th>Population alert</th></tr>
+    {table_rows}
+  </table>
 </div>
 </body>
 </html>"""
