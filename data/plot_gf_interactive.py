@@ -224,7 +224,7 @@ def main():
             tif_path, cmap_name, bins, threshold)
         max_p, pct_above = panel_stats(tif_path, threshold)
         rendered.append({
-            "label": label, "img_b64": img_b64, "bounds": bounds,
+            "label": label, "img_b64": img_b64, "rgba": rgba_arr, "bounds": bounds,
             "norm": norm, "cmap": cmap, "bins": bins,
             "max_p": max_p, "pct_above": pct_above, "threshold": threshold,
         })
@@ -254,9 +254,9 @@ def main():
     for r in rendered:
         w, s, e, n = r["bounds"]
         folium.raster_layers.ImageOverlay(
-            image=f"data:image/png;base64,{r['img_b64']}",
+            image=r["rgba"],
             bounds=[[s, w], [n, e]],
-            opacity=1.0, name=r["label"], interactive=False, zindex=1,
+            opacity=1.0, name=r["label"], mercator_project=True, interactive=False, zindex=1,
         ).add_to(m)
 
     if args.contours and os.path.exists(args.contours):
@@ -337,9 +337,9 @@ def main():
                 attr="Esri", name="Topo").add_to(mi)
             w, s, e, n = r["bounds"]
             folium.raster_layers.ImageOverlay(
-                image=f"data:image/png;base64,{r['img_b64']}",
+                image=r["rgba"],
                 bounds=[[s, w], [n, e]],
-                opacity=1.0, name=r["label"], interactive=False, zindex=1,
+                opacity=1.0, name=r["label"], mercator_project=True, interactive=False, zindex=1,
             ).add_to(mi)
             if args.contours and os.path.exists(args.contours):
                 folium.GeoJson(
