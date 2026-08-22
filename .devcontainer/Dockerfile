@@ -16,7 +16,6 @@ RUN conda env create -q -n shakemap \
     -f /home/vscode/shakemap/linux_environment.yml
 RUN /opt/conda/envs/shakemap/bin/pip install -q "setuptools<82" && \
     /opt/conda/envs/shakemap/bin/pip install -q -e /home/vscode/shakemap
-# Fix matplotlib blank map bug
 RUN conda run -n shakemap conda install -q -y -c conda-forge "matplotlib<3.11"
 RUN /opt/conda/envs/shakemap/bin/pip install -q ipykernel && \
     /opt/conda/envs/shakemap/bin/python -m ipykernel install \
@@ -38,13 +37,7 @@ RUN sed -i \
 # AFAD regional Vs30 for Turkey
 COPY data/vs30/vs30_turkey_300m.tif /home/vscode/shakemap_data/vs30/afad_turkey_vs30.tif
 # Pre-cache NaturalEarth cartopy data
-RUN conda run -n shakemap python -c "\
-    import cartopy.io.shapereader as s; \
-    s.natural_earth(resolution='10m', category='cultural', name='admin_0_countries'); \
-    s.natural_earth(resolution='10m', category='cultural', name='admin_1_states_provinces_lines'); \
-    s.natural_earth(resolution='10m', category='physical', name='lakes'); \
-    s.natural_earth(resolution='10m', category='physical', name='ocean'); \
-    s.natural_earth(resolution='10m', category='physical', name='land')"
+RUN conda run -n shakemap python -c "import cartopy.io.shapereader as s; s.natural_earth(resolution='10m', category='cultural', name='admin_0_countries'); s.natural_earth(resolution='10m', category='cultural', name='admin_1_states_provinces_lines'); s.natural_earth(resolution='10m', category='physical', name='lakes'); s.natural_earth(resolution='10m', category='physical', name='ocean'); s.natural_earth(resolution='10m', category='physical', name='land')"
 # Pre-stage workshop events
 COPY data/event_configs /home/vscode/event_configs_src
 RUN conda run -n shakemap bash -c "\
