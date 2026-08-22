@@ -17,7 +17,7 @@ RUN conda env create -q -n shakemap \
 RUN /opt/conda/envs/shakemap/bin/pip install -q "setuptools<82" && \
     /opt/conda/envs/shakemap/bin/pip install -q -e /home/vscode/shakemap
 # Fix matplotlib blank map bug
-RUN /opt/conda/envs/shakemap/bin/pip install -q "matplotlib<3.11"
+RUN conda run -n shakemap conda install -q -y -c conda-forge "matplotlib<3.11"
 RUN /opt/conda/envs/shakemap/bin/pip install -q ipykernel && \
     /opt/conda/envs/shakemap/bin/python -m ipykernel install \
     --user --name shakemap --display-name "Python (ShakeMap)"
@@ -29,7 +29,6 @@ RUN mkdir -p /home/vscode/shakemap_data/vs30 /home/vscode/shakemap_data/topo && 
          -o /home/vscode/shakemap_data/vs30/global_vs30.grd && \
     curl -L https://github.com/smithUSGS/shakemap-gf-workshop/releases/download/v1.0-data/topo_30sec.grd \
          -o /home/vscode/shakemap_data/topo/topo_30sec.grd
-# Update config files to point to downloaded grids
 RUN sed -i \
     's|vs30file = .*|vs30file = /home/vscode/shakemap_data/vs30/global_vs30.grd|' \
     /home/vscode/shakemap_profiles/default/install/config/model.conf && \
@@ -38,7 +37,7 @@ RUN sed -i \
     /home/vscode/shakemap_profiles/default/install/config/products.conf
 # AFAD regional Vs30 for Turkey
 COPY data/vs30/vs30_turkey_300m.tif /home/vscode/shakemap_data/vs30/afad_turkey_vs30.tif
-# Pre-cache NaturalEarth cartopy data (eliminates ~50s download during mapping)
+# Pre-cache NaturalEarth cartopy data
 RUN conda run -n shakemap python -c "\
     import cartopy.io.shapereader as s; \
     s.natural_earth(resolution='10m', category='cultural', name='admin_0_countries'); \
@@ -46,7 +45,7 @@ RUN conda run -n shakemap python -c "\
     s.natural_earth(resolution='10m', category='physical', name='lakes'); \
     s.natural_earth(resolution='10m', category='physical', name='ocean'); \
     s.natural_earth(resolution='10m', category='physical', name='land')"
-# Pre-stage all three workshop events
+# Pre-stage workshop events
 COPY data/event_configs /home/vscode/event_configs_src
 RUN conda run -n shakemap bash -c "\
     sm_create bssc2014nsanandreassapsassha_m7p6_se && \
