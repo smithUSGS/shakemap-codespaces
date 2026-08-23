@@ -40,9 +40,13 @@ COPY data/vs30/vs30_turkey_300m.tif /home/vscode/shakemap_data/vs30/afad_turkey_
 RUN conda run -n shakemap python -c "import cartopy.io.shapereader as s; s.natural_earth(resolution='10m', category='cultural', name='admin_0_countries'); s.natural_earth(resolution='10m', category='cultural', name='admin_1_states_provinces_lines'); s.natural_earth(resolution='10m', category='physical', name='lakes'); s.natural_earth(resolution='10m', category='physical', name='ocean'); s.natural_earth(resolution='10m', category='physical', name='land')"
 # Pre-stage workshop events
 COPY data/event_configs /home/vscode/event_configs_src
-RUN conda run -n shakemap bash -c "sm_create bssc2014nsanandreassapsassha_m7p6_se && cp /home/vscode/event_configs_src/bssc2014nsanandreassapsassha_m7p6_se/model.conf /home/vscode/shakemap_profiles/default/data/bssc2014nsanandreassapsassha_m7p6_se/current/model.conf"
-RUN conda run -n shakemap bash -c "sm_create malatya_fault_se && cp /home/vscode/event_configs_src/malatya_fault_se/rupture.json /home/vscode/shakemap_profiles/default/data/malatya_fault_se/current/rupture.json && cp /home/vscode/event_configs_src/malatya_fault_se/event.xml /home/vscode/shakemap_profiles/default/data/malatya_fault_se/current/event.xml && cp /home/vscode/event_configs_src/malatya_fault_se/model.conf /home/vscode/shakemap_profiles/default/data/malatya_fault_se/current/model.conf"
-RUN conda run -n shakemap bash -c "sm_create us6000jllz && cp /home/vscode/event_configs_src/us6000jllz/rupture.json /home/vscode/shakemap_profiles/default/data/us6000jllz/current/rupture.json && cp /home/vscode/event_configs_src/us6000jllz/event.xml /home/vscode/shakemap_profiles/default/data/us6000jllz/current/event.xml && cp /home/vscode/event_configs_src/us6000jllz/model.conf /home/vscode/shakemap_profiles/default/data/us6000jllz/current/model.conf"
+RUN mkdir -p \
+    /home/vscode/shakemap_profiles/default/data/bssc2014nsanandreassapsassha_m7p6_se/current \
+    /home/vscode/shakemap_profiles/default/data/malatya_fault_se/current \
+    /home/vscode/shakemap_profiles/default/data/us6000jllz/current && \
+    cp -r /home/vscode/event_configs_src/bssc2014nsanandreassapsassha_m7p6_se/. /home/vscode/shakemap_profiles/default/data/bssc2014nsanandreassapsassha_m7p6_se/current/ && \
+    cp -r /home/vscode/event_configs_src/malatya_fault_se/. /home/vscode/shakemap_profiles/default/data/malatya_fault_se/current/ && \
+    cp -r /home/vscode/event_configs_src/us6000jllz/. /home/vscode/shakemap_profiles/default/data/us6000jllz/current/
 # Auto-activate shakemap in every terminal
 RUN conda init bash -q && echo "conda activate shakemap" >> /home/vscode/.bashrc
 # groundfailure
