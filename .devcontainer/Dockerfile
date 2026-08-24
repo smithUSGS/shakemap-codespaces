@@ -47,6 +47,8 @@ RUN mkdir -p \
     cp -r /home/vscode/event_configs_src/bssc2014nsanandreassapsassha_m7p6_se/. /home/vscode/shakemap_profiles/default/data/bssc2014nsanandreassapsassha_m7p6_se/current/ && \
     cp -r /home/vscode/event_configs_src/malatya_fault_se/. /home/vscode/shakemap_profiles/default/data/malatya_fault_se/current/ && \
     cp -r /home/vscode/event_configs_src/us6000jllz/. /home/vscode/shakemap_profiles/default/data/us6000jllz/current/
+# Warm up shake's first-run import cache (known slow first invocation)
+RUN conda run -n shakemap shake -v || true
 # Auto-activate shakemap in every terminal
 RUN conda init bash -q && echo "conda activate shakemap" >> /home/vscode/.bashrc
 # groundfailure
@@ -63,14 +65,6 @@ RUN /opt/conda/envs/gf/bin/pip install -q ipykernel && \
 COPY data/turkey_inputs /home/vscode/turkey_inputs
 RUN printf "data_path = /home/vscode/turkey_inputs\nconfig_filepath = /home/vscode/groundfailure/defaultconfigfiles\noutput_filepath = /home/vscode/gf_output\n" \
     > /home/vscode/.gfail_defaults
-# gfail lifelines
-RUN git clone -q --depth 1 \
-    https://code.usgs.gov/ghsc/esi/gfail_lifelines.git /home/vscode/gfail_lifelines
-RUN conda create -q -y -n gfroads -c conda-forge python=3.11 gdal && \
-    /opt/conda/envs/gfroads/bin/pip install -q -e /home/vscode/gfail_lifelines
-RUN /opt/conda/envs/gfroads/bin/pip install -q ipykernel && \
-    /opt/conda/envs/gfroads/bin/python -m ipykernel install \
-    --user --name gfroads --display-name "Python (GF Roads)"
 # plotting scripts
 COPY data/plot_gf.py /home/vscode/plot_gf.py
 COPY data/plot_gf_interactive.py /home/vscode/plot_gf_interactive.py
