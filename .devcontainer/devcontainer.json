@@ -17,7 +17,9 @@
         "workbench.startupEditor": "none",
         "explorer.confirmDelete": false,
         "files.simpleDialog.enable": true,
-        "notebook.autoSave": "off"
+        "notebook.autoSave": "off",
+        "security.workspace.trust.enabled": false,
+        "window.restoreWindows": "none"
       }
     }
   },
