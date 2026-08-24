@@ -120,7 +120,7 @@ def tif_to_png_overlay(tif_path, cmap_name, bins, threshold):
     plt.imsave(buf, rgba, format="png")
     buf.seek(0)
     img_b64 = base64.b64encode(buf.read()).decode("utf-8")
-    return img_b64, bounds_wgs84, vmin, vmax, norm, cmap
+    return img_b64, bounds_wgs84, vmin, vmax, norm, cmap, rgba
 
 
 def make_colorbar(cmap, norm, bins, title):
@@ -220,7 +220,7 @@ def main():
         threshold = args.threshold or cfg_threshold or 0.002
         cmap_name = cfg_cmap or "CMRmap_r"
         print(f"Reading {tif_path}...")
-        img_b64, bounds, vmin, vmax, norm, cmap = tif_to_png_overlay(
+        img_b64, bounds, vmin, vmax, norm, cmap, rgba_arr = tif_to_png_overlay(
             tif_path, cmap_name, bins, threshold)
         max_p, pct_above = panel_stats(tif_path, threshold)
         rendered.append({
