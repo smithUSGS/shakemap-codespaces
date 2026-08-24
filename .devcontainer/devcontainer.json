@@ -4,7 +4,7 @@
     "dockerfile": "Dockerfile",
     "context": ".."
   },
-  "hostRequirements": { "cpus": 2 },
+  "hostRequirements": { "cpus": 4 },
   "customizations": {
     "vscode": {
       "extensions": [
@@ -19,7 +19,19 @@
         "files.simpleDialog.enable": true,
         "notebook.autoSave": "off",
         "security.workspace.trust.enabled": false,
-        "window.restoreWindows": "none"
+        "window.restoreWindows": "none",
+        "python.analysis.diagnosticMode": "openFilesOnly",
+        "python.analysis.indexing": false,
+        "python.analysis.exclude": [
+          "/home/vscode/shakemap/**",
+          "/home/vscode/groundfailure/**",
+          "/opt/conda/**"
+        ],
+        "files.watcherExclude": {
+          "/home/vscode/shakemap/**": true,
+          "/home/vscode/groundfailure/**": true,
+          "/opt/conda/**": true
+        }
       }
     }
   },
