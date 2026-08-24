@@ -1,2 +1,1 @@
 /home/vscode/groundfailure/defaultconfigfiles/models/allstadt_2026_turkiye2023_prelim.ini
-/home/vscode/groundfailure/defaultconfigfiles/models/asadi_2024_turkiye2023.ini
