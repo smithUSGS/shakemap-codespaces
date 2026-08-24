@@ -9,14 +9,14 @@ RUN curl -fsSL https://github.com/conda-forge/miniforge/releases/latest/download
 ENV PATH=$CONDA_DIR/bin:$PATH
 USER vscode
 WORKDIR /home/vscode
-# ShakeMap v4.4.9
-RUN git clone -q --depth 1 -b v4.4.9 \
+# ShakeMap (devel branch - matplotlib<3.11 pinned in environment.yml)
+RUN git clone -q --depth 1 \
     https://code.usgs.gov/ghsc/esi/shakemap.git /home/vscode/shakemap
-RUN conda env create -q -n shakemap \
-    -f /home/vscode/shakemap/linux_environment.yml
-RUN /opt/conda/envs/shakemap/bin/pip install -q "setuptools<82" && \
-    /opt/conda/envs/shakemap/bin/pip install -q -e /home/vscode/shakemap
-RUN conda run -n shakemap conda install -q -y -c conda-forge "matplotlib<3.11"
+RUN conda create -q -y -n conda-lock -c conda-forge conda-lock
+RUN CONDA_LOCK_NO_MAMBA=1 conda run -n conda-lock conda-lock install \
+    --name shakemap /home/vscode/shakemap/conda-lock.yml
+RUN /opt/conda/envs/shakemap/bin/pip install -q --no-deps -e /home/vscode/shakemap
+RUN conda env remove -q -y -n conda-lock
 RUN /opt/conda/envs/shakemap/bin/pip install -q ipykernel && \
     /opt/conda/envs/shakemap/bin/python -m ipykernel install \
     --user --name shakemap --display-name "Python (ShakeMap)"
