@@ -13,7 +13,7 @@
 
 ## Notebooks
 
-Open the `data/notebooks/` folder in the Explorer and run cells top-to-bottom.
+Open the `/workspaces/shakemap-gf-workshop/data/notebooks/` folder in the Explorer and run cells top-to-bottom.
 Select the **Python (ShakeMap)** kernel when prompted.
 
 | Notebook | Description |
