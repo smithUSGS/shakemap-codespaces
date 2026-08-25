@@ -61,13 +61,26 @@ def read_config(config_path):
         cfg = ConfigObj(config_path)
         model_name = list(cfg.keys())[0]
         disp = cfg[model_name].get("display_options", {})
-        lims_str = disp.get("lims", {}).get("model", None)
-        thresh_str = disp.get("maskthresholds", {}).get("model", None)
+        lims_val = disp.get("lims", {}).get("model", None)
+        thresh_val = disp.get("maskthresholds", {}).get("model", None)
         cmap_str = disp.get("colors", {}).get("model", None)
-        bins = ([float(x.strip()) for x in lims_str.split(",")]
-                if lims_str and lims_str != "None" else None)
-        threshold = (float(thresh_str)
-                     if thresh_str and thresh_str != "None" else None)
+
+        # ConfigObj auto-parses comma-separated values into a list, so
+        # handle both list (normal) and string (defensive) forms.
+        if isinstance(lims_val, list):
+            bins = [float(x) for x in lims_val] if lims_val else None
+        elif lims_val and lims_val != "None":
+            bins = [float(x.strip()) for x in lims_val.split(",")]
+        else:
+            bins = None
+
+        if isinstance(thresh_val, list):
+            threshold = float(thresh_val[0]) if thresh_val else None
+        elif thresh_val and thresh_val != "None":
+            threshold = float(thresh_val)
+        else:
+            threshold = None
+
         cmap = cmap_str.replace("cm.", "") if cmap_str and cmap_str != "None" else None
         return bins, threshold, cmap
     except Exception:
@@ -115,7 +128,7 @@ def tif_to_png_overlay(tif_path, cmap_name, bins, threshold):
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
     rgba = cmap(norm(data))
-    rgba[..., 3] = np.where(np.isnan(data), 0, 0.65)   # Kate: more transparency
+    rgba[..., 3] = np.where(np.isnan(data), 0, 0.65)
 
     buf = io.BytesIO()
     plt.imsave(buf, rgba, format="png")
@@ -124,49 +137,63 @@ def tif_to_png_overlay(tif_path, cmap_name, bins, threshold):
     return img_b64, bounds_wgs84, vmin, vmax, norm, cmap, rgba
 
 
-def make_colorbar(cmap, norm, bins, title):
-    """Discrete, labeled legend strip (USGS-intensity-scale style).
+# groundfailure's own legend renderer + default palette/bins — imported
+# directly so the legend is pixel-identical to the official USGS
+# ground-failure product legend, and stays in sync automatically if
+# groundfailure changes its palette.
+try:
+    from gfail.webpage import make_legend as _gf_make_legend
+    from gfail.webpage import DFCOLORS as _GF_DFCOLORS
+    from gfail.webpage import DFBINS as _GF_DFBINS
+    _HAVE_GF_LEGEND = True
+except Exception:
+    _HAVE_GF_LEGEND = False
 
-    Renders one solid box per bin (colored at each bin's midpoint under
-    the same norm/cmap used to render the map), with the bin-edge value
-    printed centered under each internal boundary — same visual style as
-    the official USGS shaking-intensity legend, so identical bins always
-    render identically across every panel that shares this function.
+
+def make_colorbar(cmap, norm, bins, title):
+    """Legend strip matching the official groundfailure product legend.
+
+    Uses gfail.webpage.make_legend with the DFCOLORS/DFBINS defaults
+    whenever the model's own bins match the default 7-edge scheme (the
+    normal case for jessee_2018 / zhu_2017 / allstadt-style configs), so
+    every panel that shares the default bins renders an identical legend.
+    Falls back to a continuous matplotlib colorbar if groundfailure isn't
+    importable or the model defines a non-default number of bins.
     """
-    if bins is None:
-        # fall back to a continuous bar if no discrete bins are defined
-        fig, ax = plt.subplots(figsize=(4, 0.4))
-        fig.subplots_adjust(bottom=0.5)
-        cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap),
-                          cax=ax, orientation="horizontal")
-        cb.set_label(title, fontsize=9)
-        ax.tick_params(labelsize=7)
+    use_default = (
+        _HAVE_GF_LEGEND and bins is not None and len(bins) == len(_GF_DFBINS)
+    )
+    if use_default:
+        import copy as _copy
+        plt.close("all")  # make sure we grab only this call's figure
+        _gf_make_legend(
+            _copy.deepcopy(_GF_DFBINS),
+            _copy.deepcopy(_GF_DFCOLORS),
+            filename=None,
+            orientation="horizontal",
+            title=title,
+            transparent=False,
+        )
+        fig = plt.gcf()  # make_legend builds but does not return the figure
         buf = io.BytesIO()
-        plt.savefig(buf, format="png", bbox_inches="tight", transparent=True, dpi=120)
+        fig.savefig(buf, format="png", bbox_inches="tight", transparent=False, dpi=150)
         buf.seek(0)
         b64 = base64.b64encode(buf.read()).decode("utf-8")
-        plt.close()
+        plt.close(fig)
         return b64
 
-    n = len(bins) - 1
-    fig, ax = plt.subplots(figsize=(0.62 * n + 0.4, 0.85))
-    ax.set_title(title, fontsize=10, fontweight="bold", pad=4)
-
-    for i in range(n):
-        mid = 0.5 * (bins[i] + bins[i + 1])
-        color = cmap(norm(mid))
-        ax.add_patch(plt.Rectangle((i, 0), 1, 1, facecolor=color,
-                                   edgecolor="black", linewidth=0.8))
-
-    for i, edge in enumerate(bins):
-        ax.text(i, -0.15, f"{edge:g}", ha="center", va="top", fontsize=7)
-
-    ax.set_xlim(0, n)
-    ax.set_ylim(-0.4, 1)
-    ax.axis("off")
-
+    # fall back to a continuous bar if groundfailure's legend isn't usable
+    fig, ax = plt.subplots(figsize=(4, 0.4))
+    fig.subplots_adjust(bottom=0.5)
+    cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap),
+                      cax=ax, orientation="horizontal")
+    if bins is not None:
+        cb.set_ticks(bins)
+        cb.set_ticklabels([str(b) for b in bins])
+    cb.set_label(title, fontsize=9)
+    ax.tick_params(labelsize=7)
     buf = io.BytesIO()
-    plt.savefig(buf, format="png", bbox_inches="tight", transparent=True, dpi=150)
+    plt.savefig(buf, format="png", bbox_inches="tight", transparent=False, dpi=120)
     buf.seek(0)
     b64 = base64.b64encode(buf.read()).decode("utf-8")
     plt.close()
