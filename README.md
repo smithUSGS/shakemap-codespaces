@@ -7,6 +7,7 @@
 3. Click the green **Code** button → **Codespaces** tab → **New with options**
 4. Under **Region**, select **Europe West**, then click **Create codespace**
 5. Wait about 60 seconds — a terminal will open automatically
+6. Type `git pull` in the terminal to grab the latest updates from the repository.
 
 > If the connection is slow, try disconnecting from VPN or switching to a mobile hotspot.
 
