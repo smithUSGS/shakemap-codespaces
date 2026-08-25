@@ -42,6 +42,7 @@ import json
 import io
 import base64
 import os
+import sys
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -124,17 +125,48 @@ def tif_to_png_overlay(tif_path, cmap_name, bins, threshold):
 
 
 def make_colorbar(cmap, norm, bins, title):
-    fig, ax = plt.subplots(figsize=(4, 0.4))
-    fig.subplots_adjust(bottom=0.5)
-    cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap),
-                      cax=ax, orientation="horizontal")
-    if bins is not None:
-        cb.set_ticks(bins)
-        cb.set_ticklabels([str(b) for b in bins])
-    cb.set_label(title, fontsize=9)
-    ax.tick_params(labelsize=7)
+    """Discrete, labeled legend strip (USGS-intensity-scale style).
+
+    Renders one solid box per bin (colored at each bin's midpoint under
+    the same norm/cmap used to render the map), with the bin-edge value
+    printed centered under each internal boundary — same visual style as
+    the official USGS shaking-intensity legend, so identical bins always
+    render identically across every panel that shares this function.
+    """
+    if bins is None:
+        # fall back to a continuous bar if no discrete bins are defined
+        fig, ax = plt.subplots(figsize=(4, 0.4))
+        fig.subplots_adjust(bottom=0.5)
+        cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap),
+                          cax=ax, orientation="horizontal")
+        cb.set_label(title, fontsize=9)
+        ax.tick_params(labelsize=7)
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png", bbox_inches="tight", transparent=True, dpi=120)
+        buf.seek(0)
+        b64 = base64.b64encode(buf.read()).decode("utf-8")
+        plt.close()
+        return b64
+
+    n = len(bins) - 1
+    fig, ax = plt.subplots(figsize=(0.62 * n + 0.4, 0.85))
+    ax.set_title(title, fontsize=10, fontweight="bold", pad=4)
+
+    for i in range(n):
+        mid = 0.5 * (bins[i] + bins[i + 1])
+        color = cmap(norm(mid))
+        ax.add_patch(plt.Rectangle((i, 0), 1, 1, facecolor=color,
+                                   edgecolor="black", linewidth=0.8))
+
+    for i, edge in enumerate(bins):
+        ax.text(i, -0.15, f"{edge:g}", ha="center", va="top", fontsize=7)
+
+    ax.set_xlim(0, n)
+    ax.set_ylim(-0.4, 1)
+    ax.axis("off")
+
     buf = io.BytesIO()
-    plt.savefig(buf, format="png", bbox_inches="tight", transparent=True, dpi=120)
+    plt.savefig(buf, format="png", bbox_inches="tight", transparent=True, dpi=150)
     buf.seek(0)
     b64 = base64.b64encode(buf.read()).decode("utf-8")
     plt.close()
