@@ -42,6 +42,7 @@ import json
 import io
 import base64
 import os
+import sys
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -53,6 +54,21 @@ import rasterio
 import rasterio.warp
 import folium
 
+# groundfailure's own legend renderer + default palette/bins — imported
+# directly (rather than reimplemented) so that:
+#   1) the legend is pixel-identical to the official USGS ground-failure
+#      product legend, and
+#   2) the map raster itself (tif_to_png_overlay) is colored from this
+#      SAME palette whenever it applies, so the map can never show a
+#      color (e.g. black) that the legend doesn't also show.
+try:
+    from gfail.webpage import make_legend as _gf_make_legend
+    from gfail.webpage import DFCOLORS as _GF_DFCOLORS
+    from gfail.webpage import DFBINS as _GF_DFBINS
+    _HAVE_GF_LEGEND = True
+except Exception:
+    _HAVE_GF_LEGEND = False
+
 
 def read_config(config_path):
     try:
@@ -60,13 +76,26 @@ def read_config(config_path):
         cfg = ConfigObj(config_path)
         model_name = list(cfg.keys())[0]
         disp = cfg[model_name].get("display_options", {})
-        lims_str = disp.get("lims", {}).get("model", None)
-        thresh_str = disp.get("maskthresholds", {}).get("model", None)
+        lims_val = disp.get("lims", {}).get("model", None)
+        thresh_val = disp.get("maskthresholds", {}).get("model", None)
         cmap_str = disp.get("colors", {}).get("model", None)
-        bins = ([float(x.strip()) for x in lims_str.split(",")]
-                if lims_str and lims_str != "None" else None)
-        threshold = (float(thresh_str)
-                     if thresh_str and thresh_str != "None" else None)
+
+        # ConfigObj auto-parses comma-separated values into a list, so
+        # handle both list (normal) and string (defensive) forms.
+        if isinstance(lims_val, list):
+            bins = [float(x) for x in lims_val] if lims_val else None
+        elif lims_val and lims_val != "None":
+            bins = [float(x.strip()) for x in lims_val.split(",")]
+        else:
+            bins = None
+
+        if isinstance(thresh_val, list):
+            threshold = float(thresh_val[0]) if thresh_val else None
+        elif thresh_val and thresh_val != "None":
+            threshold = float(thresh_val)
+        else:
+            threshold = None
+
         cmap = cmap_str.replace("cm.", "") if cmap_str and cmap_str != "None" else None
         return bins, threshold, cmap
     except Exception:
@@ -104,14 +133,26 @@ def tif_to_png_overlay(tif_path, cmap_name, bins, threshold):
         data[data == nodata] = np.nan
     data[data < threshold] = np.nan
 
-    cmap = plt.get_cmap(cmap_name)
-    if bins is not None:
+    # Use groundfailure's own DFCOLORS/DFBINS palette whenever this
+    # model's bins match the default 7-edge scheme, so the map raster
+    # and the legend (make_colorbar, below) always draw from the
+    # identical color source and can never disagree.
+    use_default = (
+        _HAVE_GF_LEGEND and bins is not None and len(bins) == len(_GF_DFBINS)
+    )
+    if use_default:
+        cmap = mcolors.ListedColormap([tuple(c) for c in _GF_DFCOLORS])
         norm = mcolors.BoundaryNorm(bins, cmap.N)
         vmin, vmax = bins[0], bins[-1]
     else:
-        vmin = float(np.nanpercentile(data, 2))
-        vmax = float(np.nanpercentile(data, 98))
-        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        cmap = plt.get_cmap(cmap_name)
+        if bins is not None:
+            norm = mcolors.BoundaryNorm(bins, cmap.N)
+            vmin, vmax = bins[0], bins[-1]
+        else:
+            vmin = float(np.nanpercentile(data, 2))
+            vmax = float(np.nanpercentile(data, 98))
+            norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
     rgba = cmap(norm(data))
     rgba[..., 3] = np.where(np.isnan(data), 0, 0.65)   # Kate: more transparency
@@ -124,6 +165,38 @@ def tif_to_png_overlay(tif_path, cmap_name, bins, threshold):
 
 
 def make_colorbar(cmap, norm, bins, title):
+    """Legend strip matching the official groundfailure product legend.
+
+    Uses gfail.webpage.make_legend with the DFCOLORS/DFBINS defaults
+    whenever the model's own bins match the default 7-edge scheme — the
+    SAME condition tif_to_png_overlay uses to choose the raster's cmap,
+    so the legend and the map are guaranteed to agree. Falls back to a
+    continuous matplotlib colorbar if groundfailure isn't importable or
+    the model defines a non-default number of bins.
+    """
+    use_default = (
+        _HAVE_GF_LEGEND and bins is not None and len(bins) == len(_GF_DFBINS)
+    )
+    if use_default:
+        import copy as _copy
+        plt.close("all")  # make sure we grab only this call's figure
+        _gf_make_legend(
+            _copy.deepcopy(_GF_DFBINS),
+            _copy.deepcopy(_GF_DFCOLORS),
+            filename=None,
+            orientation="horizontal",
+            title=title,
+            transparent=False,
+        )
+        fig = plt.gcf()  # make_legend builds but does not return the figure
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", bbox_inches="tight", transparent=False, dpi=150)
+        buf.seek(0)
+        b64 = base64.b64encode(buf.read()).decode("utf-8")
+        plt.close(fig)
+        return b64
+
+    # fall back to a continuous bar if groundfailure's legend isn't usable
     fig, ax = plt.subplots(figsize=(4, 0.4))
     fig.subplots_adjust(bottom=0.5)
     cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap),
@@ -134,7 +207,7 @@ def make_colorbar(cmap, norm, bins, title):
     cb.set_label(title, fontsize=9)
     ax.tick_params(labelsize=7)
     buf = io.BytesIO()
-    plt.savefig(buf, format="png", bbox_inches="tight", transparent=True, dpi=120)
+    plt.savefig(buf, format="png", bbox_inches="tight", transparent=False, dpi=120)
     buf.seek(0)
     b64 = base64.b64encode(buf.read()).decode("utf-8")
     plt.close()
@@ -287,7 +360,12 @@ def main():
             icon=folium.Icon(icon="star", color="red", prefix="fa")
         ).add_to(m)
 
-    folium.LayerControl(position="bottomright", collapsed=False).add_to(m)
+    # Eric: give the layer control (top-right) a fixed margin so it can't
+    # collide with the legend (bottom-left) at narrower window widths.
+    m.get_root().html.add_child(folium.Element(
+        '<style>.leaflet-top.leaflet-right { margin-top: 15px; margin-right: 15px; }</style>'
+    ))
+    folium.LayerControl(position="topright", collapsed=True).add_to(m)
 
     # colorbar + stats box — note: reflects first model only when multi-model
     primary = rendered[0]
@@ -310,7 +388,8 @@ def main():
     colorbar_html = f"""
     <div style="position:fixed; bottom:30px; left:30px; z-index:1000;
                 background:white; padding:8px 12px; border-radius:6px;
-                box-shadow:2px 2px 6px rgba(0,0,0,0.3); min-width:280px;">
+                box-shadow:2px 2px 6px rgba(0,0,0,0.3);
+                min-width:280px; max-width:320px;">
         <div style="font-size:12px; font-weight:bold; margin-bottom:4px;">
             {colorbar_label}</div>
         <img src="data:image/png;base64,{cb_b64}" style="width:100%;">
@@ -361,7 +440,11 @@ def main():
                     tooltip=f"Epicenter M{magnitude:.1f} — {description}",
                     icon=folium.Icon(icon="star", color="red", prefix="fa")
                 ).add_to(mi)
-            folium.LayerControl(position="bottomright", collapsed=False).add_to(mi)
+            # Eric: same margin fix, applied per-panel in the two-map layout
+            mi.get_root().html.add_child(folium.Element(
+                '<style>.leaflet-top.leaflet-right { margin-top: 15px; margin-right: 15px; }</style>'
+            ))
+            folium.LayerControl(position="topright", collapsed=True).add_to(mi)
             # colorbar embedded in map
             cb_b64 = make_colorbar(r["cmap"], r["norm"], r["bins"], "Probability")
             cb_html = f"""
