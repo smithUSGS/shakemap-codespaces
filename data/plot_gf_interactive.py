@@ -12,9 +12,9 @@ Usage (single model):
                                   [--threshold 0.002]
 
 Usage (multi-model layer switch):
-    python plot_gf_interactive.py --outfile <output.html> \\
-        --model "LABEL:TIF:CONFIG" [--model "LABEL:TIF:CONFIG" ...] \\
-        [--shakefile path/to/grid.xml] [--rupture path/to/rupture.json] \\
+    python plot_gf_interactive.py --outfile <output.html> \
+        --model "LABEL:TIF:CONFIG" [--model "LABEL:TIF:CONFIG" ...] \
+        [--shakefile path/to/grid.xml] [--rupture path/to/rupture.json] \
         [--contours path/to/cont_mmi.json]
 
     --model format: "LABEL:TIF:CONFIG"
@@ -28,12 +28,12 @@ Other arguments:
     --threshold  Mask values below this (default: from config or 0.002)
 
 Example (multi-model, Turkey):
-    python plot_gf_interactive.py \\
-        --model "Nowicki Jessee (2018):~/gf_turkey/us6000jlqa/us6000jlqa_jessee_2018_slim_model.tif:~/groundfailure/defaultconfigfiles/models/jessee_2018_slim.ini" \\
-        --model "Zhu and others (2017):~/gf_turkey/us6000jlqa/us6000jlqa_zhu_2017_general_slim_model.tif:~/groundfailure/defaultconfigfiles/models/zhu_2017_general_slim.ini" \\
-        --shakefile ~/shakemap_profiles/default/data/us6000jlqa/current/products/grid.xml \\
-        --rupture ~/shakemap_profiles/default/data/us6000jlqa/current/products/rupture.json \\
-        --contours ~/shakemap_profiles/default/data/us6000jlqa/current/products/cont_mmi.json \\
+    python plot_gf_interactive.py \
+        --model "Nowicki Jessee (2018):~/gf_turkey/us6000jlqa/us6000jlqa_jessee_2018_slim_model.tif:~/groundfailure/defaultconfigfiles/models/jessee_2018_slim.ini" \
+        --model "Zhu and others (2017):~/gf_turkey/us6000jlqa/us6000jlqa_zhu_2017_general_slim_model.tif:~/groundfailure/defaultconfigfiles/models/zhu_2017_general_slim.ini" \
+        --shakefile ~/shakemap_profiles/default/data/us6000jlqa/current/products/grid.xml \
+        --rupture ~/shakemap_profiles/default/data/us6000jlqa/current/products/rupture.json \
+        --contours ~/shakemap_profiles/default/data/us6000jlqa/current/products/cont_mmi.json \
         --outfile ~/turkey_gf_map.html
 """
 
@@ -68,6 +68,13 @@ try:
     _HAVE_GF_LEGEND = True
 except Exception:
     _HAVE_GF_LEGEND = False
+
+
+def _norm_key(s):
+    """Normalize a model label or info.json id for matching: lowercase,
+    strip both underscores and spaces so 'Jessee 2018' and 'jessee_2018'
+    compare equal regardless of which separator style was used."""
+    return s.lower().replace('_', '').replace(' ', '')
 
 
 def read_config(config_path):
@@ -371,7 +378,12 @@ def main():
     primary = rendered[0]
     cb_b64 = make_colorbar(primary["cmap"], primary["norm"], primary["bins"], "Probability")
     # build stats line, add alert info if available
-    _ak = next((k for k in alert_info if k in primary["label"].lower()), None)
+    # Match by normalizing BOTH underscores and spaces on both sides, since
+    # --model labels typically use spaces ("Jessee 2018") while info.json
+    # ids use underscores ("jessee_2018") -- previously only underscores
+    # were stripped, so labels with spaces never matched at all.
+    _ak = next((k for k in alert_info if _norm_key(k) in _norm_key(primary["label"])
+                or _norm_key(primary["label"]) in _norm_key(k)), None)
     _ai = alert_info.get(_ak, {})
     _ha = _ai.get("hazard_alert", {})
     _pa = _ai.get("population_alert", {})
@@ -464,9 +476,10 @@ def main():
         table_rows = ""
         hazard_types = ["Landslide", "Liquefaction"]
         for i, r in enumerate(rendered):
+            # Same fixed normalization here -- underscores AND spaces
             _ak = next((k for k in alert_info
-                        if k.replace('_','') in r['label'].lower().replace('_','')
-                        or r['label'].lower().replace('_','') in k.replace('_','')), None)
+                        if _norm_key(k) in _norm_key(r['label'])
+                        or _norm_key(r['label']) in _norm_key(k)), None)
             _ai = alert_info.get(_ak, {})
             _ha = _ai.get("hazard_alert", {})
             _pa = _ai.get("population_alert", {})
