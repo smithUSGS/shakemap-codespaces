@@ -39,5 +39,5 @@
   "remoteUser": "vscode",
   "workspaceFile": "/workspaces/shakemap-gf-workshop/workshop.code-workspace",
   "postCreateCommand": "bash -lc 'conda activate shakemap && shake -v 2>&1 | head -1'",
-  "postAttachCommand": "bash -lc 'echo \"Workshop environment ready.\"'"
+  "postAttachCommand": "bash -lc 'cp /workspaces/shakemap-gf-workshop/data/plot_gf_interactive.py ~/plot_gf_interactive.py; echo \"Workshop environment ready.\"'"
 }
